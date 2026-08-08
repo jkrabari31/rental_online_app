@@ -1,0 +1,87 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+  output          = "../prisma-client"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Vehicle {
+  id              String               @id @default(uuid())
+  vehicleNumber   String               @unique
+  vehicleName     String
+  vehicleType     String
+  hourlyRate      Float
+  securityDeposit Float
+  rate1hr         Float?
+  rate3hr         Float?
+  rate6hr         Float?
+  rate12hr        Float?
+  rate24hr        Float?
+  description     String?
+  status          String               @default("AVAILABLE") // AVAILABLE, RENTED, INACTIVE
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  rentals         Rental[]
+  maintenance     MaintenanceExpense[]
+}
+
+model MaintenanceExpense {
+  id        String   @id @default(uuid())
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id])
+  date      DateTime
+  amount    Float
+  remarks   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Customer {
+  id            String   @id @default(uuid())
+  name          String
+  mobileNumber  String
+  email         String?
+  address       String?
+  idProofType   String
+  idProofNumber String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  rentals       Rental[]
+}
+
+model Rental {
+  id               Int       @id @default(autoincrement())
+  customerId       String
+  customer         Customer  @relation(fields: [customerId], references: [id])
+  vehicleId        String
+  vehicle          Vehicle   @relation(fields: [vehicleId], references: [id])
+  pickupDate       DateTime
+  returnDate       DateTime?
+  depositAmount    Float
+  selectedPackage  String    @default("HOURLY") // HOURLY, 1HR, 3HR, 6HR, 12HR, 24HR
+  notes            String?
+  status           String    @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  totalHours       Float?
+  totalAmount      Float?
+  settlementAmount Float?    @default(0)
+  isAccident       Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Setting {
+  id                   String   @id @default(uuid())
+  currencySymbol       String   @default("$")
+  hourlyRoundingRule   String   @default("EXACT") // EXACT, ROUND_UP
+  defaultDepositAmount Float    @default(0)
+  companyName          String   @default("My Rental Company")
+  companyAddress       String   @default("")
+  companyContact       String   @default("")
+  receiptLogoPath      String?
+  receiptFooterText    String   @default("Thank you for your business!")
+  settingsPassword     String   @default("06062026")
+  updatedAt            DateTime @updatedAt
+}
