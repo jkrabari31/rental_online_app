@@ -62,9 +62,9 @@ app.use('/api/users', userRoutes);
 if (!isDev) {
   const distPath = path.join(__dirname, '../dist');
   app.use(express.static(distPath));
-  
+
   // All non-API routes serve the React SPA
-  app.get('*', (req, res) => {
+  app.use((req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(path.join(distPath, 'index.html'));
     }
