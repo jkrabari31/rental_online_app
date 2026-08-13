@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Lock, User, KeyRound, AlertCircle } from 'lucide-react';
 
+import { api } from '@/lib/api';
+
 export function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -23,10 +25,8 @@ export function Login() {
 
     try {
       await login(username, password);
-      // AuthContext will update user state, redirect based on role will happen automatically or via navigate
-      // Fetch /auth/me or check session role
-      const res = await fetch('/api/auth/me');
-      const data = await res.json();
+      // Fetch /auth/me using api client to ensure credentials: 'include'
+      const data = await api.get<{ user: { role: string } }>('/auth/me');
       if (data?.user?.role === 'ADMIN') {
         navigate('/admin/dashboard', { replace: true });
       } else {
