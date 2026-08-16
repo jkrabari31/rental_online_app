@@ -9,13 +9,15 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const branchId = getBranchScope(req);
     const status = req.query.status as string | undefined;
+    const includeAllBranches = req.query.includeAllBranches === 'true';
 
     const where: any = {};
-    if (branchId) where.branchId = branchId;
+    if (branchId && !includeAllBranches) where.branchId = branchId;
     if (status) where.status = status;
 
     const vehicles = await prisma.vehicle.findMany({
       where,
+      include: { branch: true },
       orderBy: { createdAt: 'desc' },
     });
 

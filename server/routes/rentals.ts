@@ -9,7 +9,12 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const branchId = getBranchScope(req);
     const where: any = {};
-    if (branchId) where.branchId = branchId;
+    if (branchId) {
+      where.OR = [
+        { branchId },
+        { vehicle: { branchId } },
+      ];
+    }
 
     if (req.query.status) where.status = req.query.status as string;
 
@@ -28,7 +33,11 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
     const rentals = await prisma.rental.findMany({
       where,
-      include: { customer: true, vehicle: true },
+      include: {
+        customer: true,
+        vehicle: { include: { branch: true } },
+        branch: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
 

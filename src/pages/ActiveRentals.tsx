@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format, differenceInMinutes } from 'date-fns';
-import { User, Car, Clock, DollarSign, CheckCircle, FileText, AlertTriangle, CalendarIcon, Search } from 'lucide-react';
+import { User, Car, Clock, DollarSign, CheckCircle, FileText, AlertTriangle, CalendarIcon, Search, Building2 } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -22,6 +22,7 @@ export function ActiveRentals() {
   const [selectedRental, setSelectedRental] = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
   const [rentalSearch, setRentalSearch] = useState('');
+  const [includeAllBranches, setIncludeAllBranches] = useState(false);
   const { currencySymbol } = useAppStore();
 
   const [formData, setFormData] = useState({
@@ -54,7 +55,7 @@ export function ActiveRentals() {
 
   useEffect(() => {
     loadRentals();
-    loadAvailableVehicles();
+    loadAvailableVehicles(false);
     loadSettings();
   }, []);
 
@@ -77,9 +78,12 @@ export function ActiveRentals() {
     }
   };
 
-  const loadAvailableVehicles = useCallback(async () => {
+  const loadAvailableVehicles = useCallback(async (allBranches = false) => {
     try {
-      const data = await api.get<any[]>('/vehicles?status=AVAILABLE');
+      const url = allBranches 
+        ? '/vehicles?status=AVAILABLE&includeAllBranches=true' 
+        : '/vehicles?status=AVAILABLE';
+      const data = await api.get<any[]>(url);
       setVehicles(data || []);
     } catch (err: any) {
       console.error('Failed to load available vehicles:', err);
@@ -102,7 +106,8 @@ export function ActiveRentals() {
     const q = vehicleSearch.toLowerCase();
     return vehicles.filter(v =>
       v.vehicleName.toLowerCase().includes(q) ||
-      v.vehicleNumber.toLowerCase().includes(q)
+      v.vehicleNumber.toLowerCase().includes(q) ||
+      (v.branch?.name || '').toLowerCase().includes(q)
     );
   }, [vehicles, vehicleSearch]);
 
@@ -153,55 +158,59 @@ export function ActiveRentals() {
 
   const handleOpenNewRental = () => {
     setFormData({
-      customerId: undefined, customerName: '', mobileNumber: '', email: '', address: '', idProofType: 'Aadhaar', idProofNumber: '',
-      vehicleId: '', pickupDate: new Date(), selectedPackage: 'HOURLY', depositAmount: settings?.defaultDepositAmount || 0, notes: ''
+      customerId: undefined,
+      customerName: '',
+      mobileNumber: '',
+      email: '',
+      address: '',
+      idProofType: 'Aadhaar',
+      idProofNumber: '',
+      vehicleId: '',
+      pickupDate: new Date(),
+      selectedPackage: 'HOURLY',
+      depositAmount: settings?.defaultDepositAmount || 0,
+      notes: ''
     });
     setVehicleSearch('');
     setIsNewRentalOpen(true);
+    loadAvailableVehicles(includeAllBranches);
   };
 
   const handleStartRental = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.vehicleId) {
-      alert("Please select a vehicle before starting the rental.");
+      alert("Please select a vehicle to continue.");
       return;
     }
 
-    const rentalPayload = {
-      pickupDate: formData.pickupDate,
-      depositAmount: Number(formData.depositAmount),
-      selectedPackage: formData.selectedPackage,
-      notes: formData.notes,
-      vehicleId: formData.vehicleId,
-      customerData: {
-        id: formData.customerId,
-        name: formData.customerName,
-        mobileNumber: formData.mobileNumber,
-        email: formData.email,
-        address: formData.address,
-        idProofType: formData.idProofType,
-        idProofNumber: formData.idProofNumber,
-      }
-    };
-    
     try {
-      await api.post('/rentals', rentalPayload);
+      await api.post('/rentals', {
+        customerData: {
+          id: formData.customerId,
+          name: formData.customerName,
+          mobileNumber: formData.mobileNumber,
+          email: formData.email,
+          address: formData.address,
+          idProofType: formData.idProofType,
+          idProofNumber: formData.idProofNumber
+        },
+        vehicleId: formData.vehicleId,
+        pickupDate: formData.pickupDate,
+        selectedPackage: formData.selectedPackage,
+        depositAmount: formData.depositAmount,
+        notes: formData.notes
+      });
+      setIsNewRentalOpen(false);
+      loadRentals();
+      loadAvailableVehicles(includeAllBranches);
     } catch (err: any) {
       alert("Failed to start rental: " + err.message);
-      return;
     }
-    setIsNewRentalOpen(false);
-    setFormData({
-      customerId: undefined, customerName: '', mobileNumber: '', email: '', address: '', idProofType: 'Aadhaar', idProofNumber: '',
-      vehicleId: '', pickupDate: new Date(), selectedPackage: 'HOURLY', depositAmount: settings?.defaultDepositAmount || 0, notes: ''
-    });
-    loadRentals();
-    loadAvailableVehicles();
   };
 
   const openReturnDialog = (rental: any) => {
     setSelectedRental(rental);
-    setReturnFormData({ 
+    setReturnFormData({
       returnDate: new Date(),
       settlementAmount: 0,
       notes: rental.notes || ''
@@ -217,11 +226,13 @@ export function ActiveRentals() {
       reason: ''
     });
     setIsExchangeOpen(true);
+    loadAvailableVehicles(includeAllBranches);
   };
 
   const toggleAccident = async (rental: any) => {
     try {
-      await api.patch(`/rentals/${rental.id}/accident`, { isAccident: !rental.isAccident });
+      const newStatus = !rental.isAccident;
+      await api.patch(`/rentals/${rental.id}/accident`, { isAccident: newStatus });
       loadRentals();
     } catch (err: any) {
       alert("Failed to update accident status: " + err.message);
@@ -229,73 +240,69 @@ export function ActiveRentals() {
   };
 
   const calculateReturnAmount = () => {
-    if (!selectedRental) return { hoursUsed: '0:00', chargeableHours: 0, totalAmount: 0, baseAmount: 0, extraCharge: 0 };
+    if (!selectedRental) return { chargeableHours: 0, totalAmount: 0, roundedHoursDisplay: 0, minutes: 0, rawHours: 0, baseAmount: 0, extraCharge: 0 };
     
-    const pickup = new Date(selectedRental.pickupDate);
-    const returnDt = returnFormData.returnDate;
-    const minutesUsed = differenceInMinutes(returnDt, pickup);
-    
-    let baseAmount = 0;
-    let baseHours = 0;
+    const start = new Date(selectedRental.pickupDate);
+    const end = returnFormData.returnDate;
 
-    if (selectedRental.selectedPackage === '1HR') { baseHours = 1; baseAmount = selectedRental.vehicle.rate1hr || selectedRental.vehicle.hourlyRate; }
-    else if (selectedRental.selectedPackage === '3HR') { baseHours = 3; baseAmount = selectedRental.vehicle.rate3hr || (selectedRental.vehicle.hourlyRate * 3); }
-    else if (selectedRental.selectedPackage === '6HR') { baseHours = 6; baseAmount = selectedRental.vehicle.rate6hr || (selectedRental.vehicle.hourlyRate * 6); }
-    else if (selectedRental.selectedPackage === '12HR') { baseHours = 12; baseAmount = selectedRental.vehicle.rate12hr || (selectedRental.vehicle.hourlyRate * 12); }
-    else if (selectedRental.selectedPackage === '24HR') { baseHours = 24; baseAmount = selectedRental.vehicle.rate24hr || (selectedRental.vehicle.hourlyRate * 24); }
-
-    let chargeableHours = baseHours;
-    let totalAmount = baseAmount;
-    let extraCharge = 0;
-
-    if (selectedRental.selectedPackage === 'HOURLY') {
-        if (minutesUsed <= 60) {
-            totalAmount = selectedRental.vehicle.hourlyRate;
-            baseAmount = totalAmount;
-            chargeableHours = 1;
-        } else {
-            const extraHours = Math.floor(minutesUsed / 60);
-            const extraMins = minutesUsed % 60;
-            chargeableHours = extraHours;
-            extraCharge = extraHours * selectedRental.vehicle.hourlyRate;
-            
-            if (extraMins >= 45) {
-                extraCharge += selectedRental.vehicle.hourlyRate;
-                chargeableHours += 1;
-            } else if (extraMins > 20) {
-                extraCharge += selectedRental.vehicle.hourlyRate * 0.5;
-                chargeableHours += 0.5;
-            }
-            totalAmount = extraCharge;
-            baseAmount = 0;
-        }
-    } else {
-        const remainingMinutes = minutesUsed - (baseHours * 60);
-        if (remainingMinutes > 0) {
-            const extraHours = Math.floor(remainingMinutes / 60);
-            const extraMins = remainingMinutes % 60;
-            
-            chargeableHours += extraHours;
-            extraCharge = extraHours * selectedRental.vehicle.hourlyRate;
-            
-            if (extraMins >= 45) {
-                extraCharge += selectedRental.vehicle.hourlyRate;
-                chargeableHours += 1;
-            } else if (extraMins > 20) {
-                extraCharge += selectedRental.vehicle.hourlyRate * 0.5;
-                chargeableHours += 0.5;
-            }
-            totalAmount += extraCharge;
-        }
+    if (end < start) {
+      return { chargeableHours: 0, totalAmount: 0, roundedHoursDisplay: 0, minutes: 0, rawHours: 0, baseAmount: 0, extraCharge: 0 };
     }
 
-    totalAmount += Number(returnFormData.settlementAmount) || 0;
+    const diffMins = differenceInMinutes(end, start);
+    const rawHours = diffMins / 60;
+    const minutes = diffMins % 60;
 
-    const hoursUsedStr = `${Math.floor(minutesUsed / 60)}:${(minutesUsed % 60).toString().padStart(2, '0')}`;
+    let chargeableHours = 0;
+    const roundingRule = settings?.hourlyRoundingRule || 'EXACT';
 
-    return { 
-      hoursUsed: hoursUsedStr, 
-      chargeableHours: chargeableHours.toFixed(2), 
+    if (roundingRule === 'EXACT') {
+      chargeableHours = rawHours;
+    } else if (roundingRule === 'CEIL') {
+      chargeableHours = Math.ceil(rawHours);
+    } else if (roundingRule === 'ROUND_30') {
+      const whole = Math.floor(rawHours);
+      if (minutes === 0) chargeableHours = whole;
+      else if (minutes <= 30) chargeableHours = whole + 0.5;
+      else chargeableHours = whole + 1;
+    } else if (roundingRule === 'GRACE_15') {
+      const whole = Math.floor(rawHours);
+      if (minutes <= 15) chargeableHours = whole;
+      else chargeableHours = whole + 1;
+    }
+
+    const vehicle = selectedRental.vehicle;
+    const hourlyRate = vehicle.hourlyRate || 0;
+    const pkg = selectedRental.selectedPackage || 'HOURLY';
+
+    let pkgHours = 0;
+    let pkgPrice = 0;
+
+    if (pkg === '1HR' && vehicle.rate1hr) { pkgHours = 1; pkgPrice = vehicle.rate1hr; }
+    else if (pkg === '3HR' && vehicle.rate3hr) { pkgHours = 3; pkgPrice = vehicle.rate3hr; }
+    else if (pkg === '6HR' && vehicle.rate6hr) { pkgHours = 6; pkgPrice = vehicle.rate6hr; }
+    else if (pkg === '12HR' && vehicle.rate12hr) { pkgHours = 12; pkgPrice = vehicle.rate12hr; }
+    else if (pkg === '24HR' && vehicle.rate24hr) { pkgHours = 24; pkgPrice = vehicle.rate24hr; }
+
+    let baseAmount = 0;
+    let extraCharge = 0;
+
+    if (pkgHours > 0) {
+      baseAmount = pkgPrice;
+      const extraHours = Math.max(0, chargeableHours - pkgHours);
+      extraCharge = extraHours * hourlyRate;
+    } else {
+      baseAmount = chargeableHours * hourlyRate;
+      extraCharge = 0;
+    }
+
+    const totalAmount = Math.max(0, baseAmount + extraCharge);
+
+    return {
+      chargeableHours: chargeableHours.toFixed(2),
+      roundedHoursDisplay: Math.ceil(chargeableHours),
+      minutes,
+      rawHours: rawHours.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
       baseAmount: baseAmount.toFixed(2),
       extraCharge: extraCharge.toFixed(2)
@@ -321,9 +328,9 @@ export function ActiveRentals() {
       setIsReturnOpen(false);
       setSelectedRental(null);
       loadRentals();
-      loadAvailableVehicles();
+      loadAvailableVehicles(includeAllBranches);
     } catch (err: any) {
-        alert("Failed to complete return: " + err.message);
+      alert("Failed to complete return: " + err.message);
     }
   };
 
@@ -345,7 +352,7 @@ export function ActiveRentals() {
       setIsExchangeOpen(false);
       setSelectedRental(null);
       loadRentals();
-      loadAvailableVehicles();
+      loadAvailableVehicles(includeAllBranches);
     } catch (err: any) {
       alert("Failed to exchange vehicle: " + err.message);
     }
@@ -418,92 +425,98 @@ export function ActiveRentals() {
         (r.customer?.name || '').toLowerCase().includes(q) ||
         (r.vehicle?.vehicleNumber || '').toLowerCase().includes(q) ||
         (r.vehicle?.vehicleName || '').toLowerCase().includes(q) ||
+        (r.branch?.name || '').toLowerCase().includes(q) ||
+        (r.vehicle?.branch?.name || '').toLowerCase().includes(q) ||
         (r.id || '').toString().toLowerCase().includes(q)
       );
     });
 
     return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {filteredRentals.map((r) => (
-        <Card key={r.id} className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1 flex flex-col group ${r.isAccident ? 'bg-red-50/50 border-red-300 dark:bg-red-950/20 dark:border-red-800' : 'border-slate-200 dark:border-slate-800'}`}>
-          <CardHeader className={`pb-3 border-b ${r.isAccident ? 'bg-red-100/50 border-red-200 dark:bg-red-900/30 dark:border-red-800' : 'bg-blue-50/50 border-slate-100 dark:bg-blue-900/20 dark:border-slate-800'}`}>
-            <div className="flex justify-between items-start gap-2 flex-wrap">
-              <div className="flex-1 min-w-0">
-                <CardTitle className={`text-xl font-bold flex items-center truncate ${r.isAccident ? 'text-red-900 dark:text-red-100' : 'text-slate-900 dark:text-slate-100'}`}>
-                  <User className="w-5 h-5 mr-2 text-blue-500" />
-                  {r.customer.name}
-                </CardTitle>
-                <p className="text-xs font-mono text-muted-foreground mt-1 bg-white/50 dark:bg-slate-900/50 inline-block px-2 py-0.5 rounded-full">RNT-{r.id}</p>
-              </div>
-              <div className="flex flex-wrap gap-2 items-center justify-end shrink-0">
-                <span className="px-2.5 py-1 rounded-full text-xs font-semibold shadow-sm bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800">
-                  {r.status}
-                </span>
-                {r.isAccident && (
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold shadow-sm bg-red-100 text-red-800 border border-red-200 dark:bg-red-900/50 dark:text-red-300 dark:border-red-800 flex items-center">
-                    <AlertTriangle className="w-3 h-3 mr-1" /> ACCIDENT
-                  </span>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-4 pb-4 flex-1">
-            <div className="space-y-4 text-sm">
-              <div className="flex items-center text-slate-700 dark:text-slate-300">
-                <Car className="w-4 h-4 mr-2 text-slate-400" />
-                <span className="font-medium">{r.vehicle.vehicleName}</span>
-                <span className="text-muted-foreground ml-1 font-mono">({r.vehicle.vehicleNumber})</span>
-              </div>
-              
-              <div className="flex items-center text-slate-700 dark:text-slate-300">
-                <Clock className="w-4 h-4 mr-2 text-slate-400" />
-                <span>{format(new Date(r.pickupDate), 'PPp')}</span>
-              </div>
+      {filteredRentals.map((r) => {
+        const isCrossBranch = r.vehicle?.branch?.name && r.branch?.name && r.vehicle.branch.name !== r.branch.name;
 
-              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
-                <div className="flex items-center">
-                  <DollarSign className="w-4 h-4 mr-2 text-slate-400" />
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400">{currencySymbol}{r.vehicle.hourlyRate}/hr</span>
-                </div>
-                {r.depositAmount > 0 && (
-                  <div className="flex items-center text-xs">
-                    <span className="text-muted-foreground mr-1">Deposit:</span>
-                    <span className="font-medium text-amber-600 dark:text-amber-500">{currencySymbol}{r.depositAmount}</span>
+        return (
+          <Card key={r.id} className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1 flex flex-col group ${r.isAccident ? 'bg-red-50/50 border-red-300 dark:bg-red-950/20 dark:border-red-800' : 'border-slate-200 dark:border-slate-800'}`}>
+            <CardHeader className={`pb-3 border-b ${r.isAccident ? 'bg-red-100/50 border-red-200 dark:bg-red-900/30 dark:border-red-800' : 'bg-blue-50/50 border-slate-100 dark:bg-blue-900/20 dark:border-slate-800'}`}>
+              <div className="flex justify-between items-start gap-2 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <CardTitle className={`text-xl font-bold flex items-center truncate ${r.isAccident ? 'text-red-900 dark:text-red-100' : 'text-slate-900 dark:text-slate-100'}`}>
+                    <User className="w-5 h-5 mr-2 text-blue-500" />
+                    {r.customer.name}
+                  </CardTitle>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <p className="text-xs font-mono text-muted-foreground bg-white/50 dark:bg-slate-900/50 px-2 py-0.5 rounded-full">RNT-{r.id}</p>
+                    {isCrossBranch && (
+                      <span className="text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800 px-2 py-0.5 rounded-full flex items-center">
+                        <Building2 className="w-3 h-3 mr-1" /> Home: {r.vehicle.branch.name}
+                      </span>
+                    )}
                   </div>
-                )}
+                </div>
+                <div className="flex flex-wrap gap-2 items-center justify-end shrink-0">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-semibold shadow-sm bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800">
+                    {r.status}
+                  </span>
+                  {r.isAccident && (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold shadow-sm bg-red-100 text-red-800 border border-red-200 dark:bg-red-900/50 dark:text-red-300 dark:border-red-800 flex items-center">
+                      <AlertTriangle className="w-3 h-3 mr-1" /> ACCIDENT
+                    </span>
+                  )}
+                </div>
               </div>
+            </CardHeader>
+            <CardContent className="pt-4 pb-4 flex-1">
+              <div className="space-y-4 text-sm">
+                <div className="flex items-center text-slate-700 dark:text-slate-300 flex-wrap gap-1">
+                  <Car className="w-4 h-4 mr-1 text-slate-400 shrink-0" />
+                  <span className="font-medium">{r.vehicle.vehicleName}</span>
+                  <span className="text-muted-foreground font-mono">({r.vehicle.vehicleNumber})</span>
+                </div>
+                
+                <div className="flex items-center text-slate-700 dark:text-slate-300">
+                  <Clock className="w-4 h-4 mr-2 text-slate-400" />
+                  <span>{format(new Date(r.pickupDate), 'PPp')}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                  <div className="flex items-center">
+                    <DollarSign className="w-4 h-4 mr-2 text-slate-400" />
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">{currencySymbol}{r.vehicle.hourlyRate}/hr</span>
+                  </div>
+                  {r.depositAmount > 0 && (
+                    <div className="flex items-center text-xs">
+                      <span className="text-muted-foreground mr-1">Deposit:</span>
+                      <span className="font-medium text-amber-600 dark:text-amber-500">{currencySymbol}{r.depositAmount}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+            <div className={`p-4 pt-0 border-t mt-auto flex flex-col ${r.isAccident ? 'bg-red-50/30 border-red-200 dark:bg-red-900/10 dark:border-red-800' : 'bg-slate-50/50 border-slate-100 dark:bg-slate-900/30 dark:border-slate-800'}`}>
+              <div className="mt-4 flex space-x-2">
+                <Button onClick={() => openReturnDialog(r)} className={`flex-1 shadow-sm ${r.isAccident ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}>
+                  <CheckCircle className="w-4 h-4 mr-1" /> Return
+                </Button>
+                <Button variant="outline" onClick={() => openExchangeDialog(r)} className="flex-1 shadow-sm border-slate-200 dark:border-slate-700">
+                  Exchange
+                </Button>
+              </div>
+              <button 
+                onClick={() => toggleAccident(r)} 
+                className={`mt-3 text-[11px] font-semibold tracking-wide uppercase transition-colors text-center w-full focus:outline-none ${r.isAccident ? 'text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300' : 'text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400'}`}
+              >
+                {r.isAccident ? 'Remove Accident Tag' : 'Mark as Accident'}
+              </button>
             </div>
-          </CardContent>
-          <div className={`p-4 pt-0 border-t mt-auto flex flex-col ${r.isAccident ? 'bg-red-50/30 border-red-200 dark:bg-red-900/10 dark:border-red-800' : 'bg-slate-50/50 border-slate-100 dark:bg-slate-900/30 dark:border-slate-800'}`}>
-            <div className="mt-4 flex space-x-2">
-              <Button onClick={() => openReturnDialog(r)} className={`flex-1 shadow-sm ${r.isAccident ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}>
-                <CheckCircle className="w-4 h-4 mr-1" /> Return
-              </Button>
-              <Button variant="outline" onClick={() => openExchangeDialog(r)} className="flex-1 shadow-sm border-slate-200 dark:border-slate-700">
-                Exchange
-              </Button>
-            </div>
-            <button 
-              onClick={() => toggleAccident(r)} 
-              className={`mt-3 text-[11px] font-semibold tracking-wide uppercase transition-colors text-center w-full focus:outline-none ${r.isAccident ? 'text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300' : 'text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400'}`}
-            >
-              {r.isAccident ? 'Remove Accident Tag' : 'Mark as Accident'}
-            </button>
-          </div>
-        </Card>
-      ))}
-      {filteredRentals.length === 0 && rentals.length > 0 && (
-        <div className="col-span-full text-center py-16 border-2 border-dashed rounded-xl text-muted-foreground">
-          <Search className="w-12 h-12 mx-auto mb-4 opacity-20" />
-          <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-1">No matches found</h3>
-          <p>No rentals match your search criteria.</p>
-        </div>
-      )}
+          </Card>
+        );
+      })}
       {rentals.length === 0 && (
         <div className="col-span-full text-center py-16 border-2 border-dashed rounded-xl text-muted-foreground">
           <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
           <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-1">No active rentals</h3>
-          <p>You don't have any vehicles out on rent in your branch.</p>
+          <p>You don't have any active vehicles out on rent.</p>
           <Button onClick={handleOpenNewRental} className="mt-4" variant="outline">Create New Rental</Button>
         </div>
       )}
@@ -574,11 +587,26 @@ export function ActiveRentals() {
 
             {/* Rental Details Section */}
             <div className="bg-slate-50 dark:bg-slate-900/40 rounded-xl p-4 border border-slate-100 dark:border-slate-800/60 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="bg-indigo-100 dark:bg-indigo-900/50 p-1.5 rounded-lg mr-2">
-                  <Car className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <div className="flex items-center">
+                  <div className="bg-indigo-100 dark:bg-indigo-900/50 p-1.5 rounded-lg mr-2">
+                    <Car className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <h3 className="font-semibold text-base text-slate-800 dark:text-slate-200">Rental Specifics</h3>
                 </div>
-                <h3 className="font-semibold text-base text-slate-800 dark:text-slate-200">Rental Specifics</h3>
+                <label className="flex items-center space-x-2 text-xs font-medium text-blue-600 dark:text-blue-400 cursor-pointer bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800">
+                  <input
+                    type="checkbox"
+                    checked={includeAllBranches}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setIncludeAllBranches(checked);
+                      loadAvailableVehicles(checked);
+                    }}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Include vehicles from all branches</span>
+                </label>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -594,14 +622,14 @@ export function ActiveRentals() {
                     }}
                   >
                     <Input 
-                      value={selectedVehicle ? `${selectedVehicle.vehicleName} - ${selectedVehicle.vehicleNumber}` : vehicleSearch}
+                      value={selectedVehicle ? `${selectedVehicle.vehicleName} - ${selectedVehicle.vehicleNumber}${selectedVehicle.branch?.name ? ` (${selectedVehicle.branch.name})` : ''}` : vehicleSearch}
                       onChange={e => {
                         if (formData.vehicleId) setFormData({...formData, vehicleId: ''});
                         setVehicleSearch(e.target.value);
                         setIsVehicleDropdownOpen(true);
                       }}
                       onFocus={() => setIsVehicleDropdownOpen(true)}
-                      placeholder="Search vehicle by name or number..."
+                      placeholder="Search vehicle by name, number, or branch..."
                     />
                     {isVehicleDropdownOpen && (
                       <div 
@@ -619,7 +647,14 @@ export function ActiveRentals() {
                               setIsVehicleDropdownOpen(false);
                             }}
                           >
-                            <span>{v.vehicleName} - {v.vehicleNumber}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{v.vehicleName} - {v.vehicleNumber}</span>
+                              {v.branch?.name && (
+                                <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
+                                  {v.branch.name}
+                                </span>
+                              )}
+                            </div>
                             <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{currencySymbol}{v.hourlyRate}/hr</span>
                           </div>
                         ))}
@@ -648,163 +683,167 @@ export function ActiveRentals() {
 
                 <div className="space-y-1">
                   <Label className="text-slate-600 dark:text-slate-400 font-medium">Package Amount (Base)</Label>
-                  <div className="h-10 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold text-emerald-600 dark:text-emerald-400 flex items-center shadow-sm">
-                    {(() => {
-                      const packagePrice = formData.selectedPackage === 'HOURLY' ? selectedVehicle?.hourlyRate : 
-                                           formData.selectedPackage === '1HR' ? selectedVehicle?.rate1hr :
-                                           formData.selectedPackage === '3HR' ? selectedVehicle?.rate3hr :
-                                           formData.selectedPackage === '6HR' ? selectedVehicle?.rate6hr :
-                                           formData.selectedPackage === '12HR' ? selectedVehicle?.rate12hr :
-                                           formData.selectedPackage === '24HR' ? selectedVehicle?.rate24hr : 0;
-                      return selectedVehicle ? `${currencySymbol}${packagePrice || 0}` : '—';
-                    })()}
-                  </div>
+                  <Input 
+                    value={`${currencySymbol}${
+                      formData.selectedPackage === '1HR' ? selectedVehicle?.rate1hr || 0 :
+                      formData.selectedPackage === '3HR' ? selectedVehicle?.rate3hr || 0 :
+                      formData.selectedPackage === '6HR' ? selectedVehicle?.rate6hr || 0 :
+                      formData.selectedPackage === '12HR' ? selectedVehicle?.rate12hr || 0 :
+                      formData.selectedPackage === '24HR' ? selectedVehicle?.rate24hr || 0 :
+                      selectedVehicle?.hourlyRate || 0
+                    }`}
+                    disabled
+                    className="bg-slate-100 dark:bg-slate-800 font-semibold"
+                  />
                 </div>
 
-                <div className="space-y-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 border p-3 rounded-xl bg-white dark:bg-slate-900/80 shadow-sm border-slate-200 dark:border-slate-800 mt-1">
-                  <div className="space-y-1">
-                    <Label className="text-slate-600 dark:text-slate-400 font-medium">Pickup Date</Label>
-                    <div className="relative">
+                <div className="space-y-1 md:col-span-2">
+                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Pickup Date & Time</Label>
+                  <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                    <div className="relative flex-1">
                       <DatePicker
                         selected={formData.pickupDate}
-                        onChange={(date: Date | null) => {
-                          if (date) {
-                            const newD = new Date(formData.pickupDate);
-                            newD.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-                            setFormData({...formData, pickupDate: newD});
-                          }
-                        }}
+                        onChange={(date: Date | null) => date && setFormData({...formData, pickupDate: date})}
                         dateFormat="MMMM d, yyyy"
-                        className="flex h-10 w-full rounded-lg border border-input bg-white dark:bg-slate-900 shadow-sm px-3 py-2 text-sm transition-all outline-none focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:placeholder:text-slate-400"
+                        className="w-full h-10 px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                       <CalendarIcon className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
                     </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-slate-600 dark:text-slate-400 font-medium">Pickup Time</Label>
-                    <TimeSelector date={formData.pickupDate} onChange={d => setFormData({...formData, pickupDate: d})} />
+                    <TimeSelector 
+                      date={formData.pickupDate} 
+                      onChange={(newDate) => setFormData({...formData, pickupDate: newDate})} 
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Deposit Amount</Label>
-                  <Input type="number" value={formData.depositAmount} onChange={e => setFormData({...formData, depositAmount: Number(e.target.value)})} required />
+                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Advance Deposit ({currencySymbol})</Label>
+                  <Input 
+                    type="number" 
+                    value={formData.depositAmount} 
+                    onChange={e => setFormData({...formData, depositAmount: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                  />
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Notes</Label>
-                  <Input value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="Optional remarks" />
+                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Notes / Accessories</Label>
+                  <Input 
+                    value={formData.notes} 
+                    onChange={e => setFormData({...formData, notes: e.target.value})}
+                    placeholder="e.g. Helmet included, Scratch on left mirror"
+                  />
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-end space-x-3 pt-0">
-              <Button type="button" variant="outline" className="px-6" onClick={() => setIsNewRentalOpen(false)}>Cancel</Button>
-              <Button type="submit" size="lg" className="px-8 shadow-md">Start Rental</Button>
+            <div className="flex justify-end space-x-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsNewRentalOpen(false)}>Cancel</Button>
+              <Button type="submit" className="px-6 bg-blue-600 hover:bg-blue-700">Start Rental</Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* RETURN VEHICLE DIALOG */}
+      {/* COMPLETE RETURN DIALOG */}
       <Dialog open={isReturnOpen} onOpenChange={setIsReturnOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Return Vehicle - RNT-{selectedRental?.id}</DialogTitle>
+            <DialogTitle>Complete Rental Return</DialogTitle>
           </DialogHeader>
-          {selectedRental && (
-            <form onSubmit={handleCompleteReturn} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-md text-sm">
-                <div>
+
+          {selectedRental && returnDetails && (
+            <form onSubmit={handleCompleteReturn} className="space-y-4 mt-2">
+              <div className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border space-y-2">
+                <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Customer:</span>
-                  <div className="font-medium">{selectedRental.customer.name}</div>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedRental.customer.name} ({selectedRental.customer.mobileNumber})</span>
                 </div>
-                <div>
+                <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Vehicle:</span>
-                  <div className="font-medium">{selectedRental.vehicle.vehicleName}</div>
+                  <span className="font-medium">{selectedRental.vehicle.vehicleName} ({selectedRental.vehicle.vehicleNumber})</span>
                 </div>
-                <div>
+                <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Pickup Time:</span>
-                  <div className="font-medium">{format(new Date(selectedRental.pickupDate), 'PPp')}</div>
+                  <span>{format(new Date(selectedRental.pickupDate), 'PPp')}</span>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Hourly Rate:</span>
-                  <div className="font-medium">{currencySymbol}{selectedRental.vehicle.hourlyRate}/hr</div>
-                </div>
-                {selectedRental.depositAmount > 0 && (
-                  <div>
-                    <span className="text-muted-foreground">Deposit Collected:</span>
-                    <div className="font-medium text-amber-600 dark:text-amber-500">{currencySymbol}{selectedRental.depositAmount}</div>
-                  </div>
-                )}
               </div>
 
-              <div className="space-y-2 grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50">
-                <div className="space-y-2">
-                  <Label>Return Date</Label>
-                  <div className="relative">
+              <div className="space-y-2">
+                <Label className="font-medium">Return Date & Time</Label>
+                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                  <div className="relative flex-1">
                     <DatePicker
                       selected={returnFormData.returnDate}
-                      onChange={(date: Date | null) => {
-                        if (date) {
-                          const newD = new Date(returnFormData.returnDate);
-                          newD.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-                          setReturnFormData({...returnFormData, returnDate: newD});
-                        }
-                      }}
+                      onChange={(date: Date | null) => date && setReturnFormData({...returnFormData, returnDate: date})}
                       dateFormat="MMMM d, yyyy"
-                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:ring-offset-slate-950 dark:placeholder:text-slate-400 dark:focus-visible:ring-blue-800"
+                      className="w-full h-10 px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
                     />
-                    <CalendarIcon className="absolute right-3 top-2.5 h-5 w-5 text-muted-foreground pointer-events-none" />
+                    <CalendarIcon className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
                   </div>
-                </div>
-                <div className="space-y-2 mt-0">
-                  <Label>Return Time</Label>
-                  <TimeSelector date={returnFormData.returnDate} onChange={d => setReturnFormData({...returnFormData, returnDate: d})} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Settlement Amount (Optional)</Label>
-                  <Input type="number" step="0.01" value={returnFormData.settlementAmount || ''} onChange={e => setReturnFormData({...returnFormData, settlementAmount: Number(e.target.value)})} placeholder="0.00" />
-                  <p className="text-xs text-muted-foreground">Add to charge extra, or use negative number for discount.</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Important Notes</Label>
-                  <Input value={returnFormData.notes} onChange={e => setReturnFormData({...returnFormData, notes: e.target.value})} placeholder="Type important messages here..." />
-                  <p className="text-xs text-muted-foreground">This note will be saved in the completed rental.</p>
+                  <TimeSelector 
+                    date={returnFormData.returnDate} 
+                    onChange={(newDate) => setReturnFormData({...returnFormData, returnDate: newDate})} 
+                  />
                 </div>
               </div>
 
-              {returnDetails && (
-                <div className="border-t pt-4 space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Total Duration:</span>
-                    <span className="font-medium">{returnDetails.hoursUsed} (HH:MM)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Package / Base Amount:</span>
-                    <span className="font-medium">{currencySymbol}{returnDetails.baseAmount}</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Overtime Charge ({returnDetails.chargeableHours} hrs total):</span>
-                    <span>+{currencySymbol}{returnDetails.extraCharge}</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Settlement Adjustments:</span>
-                    <span>{Number(returnFormData.settlementAmount) < 0 ? '-' : '+'}{currencySymbol}{Math.abs(Number(returnFormData.settlementAmount) || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold border-t pt-2 mt-2">
-                    <span>Final Amount:</span>
-                    <span>{currencySymbol}{returnDetails.totalAmount}</span>
-                  </div>
+              {/* Calculation Summary */}
+              <div className="bg-blue-50/60 dark:bg-blue-950/30 p-4 rounded-xl border border-blue-100 dark:border-blue-900 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Total Rental Duration:</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{returnDetails.chargeableHours} Hours ({returnDetails.rawHours} hrs actual)</span>
                 </div>
-              )}
 
-              <div className="flex justify-end space-x-2 pt-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Base Rent Amount:</span>
+                  <span className="font-semibold">{currencySymbol}{returnDetails.baseAmount}</span>
+                </div>
+
+                {Number(returnDetails.extraCharge) > 0 && (
+                  <div className="flex justify-between text-sm text-amber-600 dark:text-amber-400">
+                    <span>Extra Hours Charge:</span>
+                    <span className="font-semibold">+{currencySymbol}{returnDetails.extraCharge}</span>
+                  </div>
+                )}
+
+                {selectedRental.depositAmount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
+                    <span>Advance Deposit Paid:</span>
+                    <span className="font-semibold">-{currencySymbol}{selectedRental.depositAmount}</span>
+                  </div>
+                )}
+
+                <div className="border-t border-blue-200 dark:border-blue-800 pt-2 flex justify-between items-center">
+                  <span className="font-bold text-base text-slate-900 dark:text-slate-100">Calculated Net Total:</span>
+                  <span className="text-2xl font-extrabold text-blue-600 dark:text-blue-400">{currencySymbol}{returnDetails.totalAmount}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="font-medium">Final Settlement Amount Received ({currencySymbol})</Label>
+                <Input 
+                  type="number" 
+                  value={returnFormData.settlementAmount} 
+                  onChange={e => setReturnFormData({...returnFormData, settlementAmount: parseFloat(e.target.value) || 0})}
+                  placeholder="Override if discount/penalty applies"
+                  className="h-11 text-lg font-bold text-emerald-600"
+                />
+                <p className="text-xs text-muted-foreground">Default is {currencySymbol}{returnDetails.totalAmount}. Adjust if giving discount or extra charge.</p>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="font-medium">Notes / Remarks</Label>
+                <Input 
+                  value={returnFormData.notes} 
+                  onChange={e => setReturnFormData({...returnFormData, notes: e.target.value})}
+                  placeholder="e.g. Returned in good condition"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
                 <Button type="button" variant="outline" onClick={() => setIsReturnOpen(false)}>Cancel</Button>
-                <Button type="submit">Complete Rental</Button>
+                <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Complete Return</Button>
               </div>
             </form>
           )}
@@ -813,60 +852,54 @@ export function ActiveRentals() {
 
       {/* EXCHANGE VEHICLE DIALOG */}
       <Dialog open={isExchangeOpen} onOpenChange={setIsExchangeOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Exchange Vehicle</DialogTitle>
+            <DialogTitle>Exchange Rental Vehicle</DialogTitle>
           </DialogHeader>
+
           {selectedRental && (
-            <form onSubmit={handleExchange} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Current Vehicle</Label>
-                <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-md text-sm border font-medium">
-                  {selectedRental.vehicle.vehicleName} ({selectedRental.vehicle.vehicleNumber})
-                </div>
+            <form onSubmit={handleExchange} className="space-y-4 mt-1">
+              <div className="bg-amber-50 dark:bg-amber-950/40 p-3.5 rounded-xl border border-amber-200 dark:border-amber-800 text-sm">
+                <p className="text-amber-800 dark:text-amber-300 font-semibold mb-1">Current Vehicle:</p>
+                <p className="text-slate-900 dark:text-slate-100 font-medium">{selectedRental.vehicle.vehicleName} ({selectedRental.vehicle.vehicleNumber})</p>
               </div>
-              
-              <div className="space-y-2">
-                <Label>Select New Vehicle</Label>
-                <Select value={exchangeFormData.newVehicleId} onValueChange={(v: string | null) => setExchangeFormData({...exchangeFormData, newVehicleId: v || ''})} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a replacement vehicle">
-                      {exchangeFormData.newVehicleId ? (
-                        (() => {
-                          const selectedVeh = vehicles.find(v => v.id === exchangeFormData.newVehicleId);
-                          return selectedVeh ? `${selectedVeh.vehicleName} (${selectedVeh.vehicleNumber})` : 'Choose a replacement vehicle';
-                        })()
-                      ) : null}
-                    </SelectValue>
-                  </SelectTrigger>
+
+              <div className="space-y-1">
+                <Label className="font-medium">Status for Old Vehicle</Label>
+                <Select value={exchangeFormData.oldVehicleStatus} onValueChange={(v: string | null) => setExchangeFormData({...exchangeFormData, oldVehicleStatus: v || 'INACTIVE'})}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
                   <SelectContent>
-                    {vehicles.map(v => (
-                      <SelectItem key={v.id} value={v.id}>{v.vehicleName} ({v.vehicleNumber})</SelectItem>
+                    <SelectItem value="INACTIVE">Inactive / Under Repair</SelectItem>
+                    <SelectItem value="AVAILABLE">Available for Rent (Fine condition)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="font-medium">New Replacement Vehicle</Label>
+                <Select value={exchangeFormData.newVehicleId} onValueChange={(v: string | null) => setExchangeFormData({...exchangeFormData, newVehicleId: v || ''})}>
+                  <SelectTrigger><SelectValue placeholder="Select available bike..." /></SelectTrigger>
+                  <SelectContent>
+                    {vehicles.filter(v => v.id !== selectedRental.vehicleId).map(v => (
+                      <SelectItem key={v.id} value={v.id}>{v.vehicleName} - {v.vehicleNumber} ({v.branch?.name ? v.branch.name : ''})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label>What happened to the old vehicle?</Label>
-                <Select value={exchangeFormData.oldVehicleStatus} onValueChange={(v: string | null) => setExchangeFormData({...exchangeFormData, oldVehicleStatus: v || 'INACTIVE'})} required>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="AVAILABLE">It is fine (Available)</SelectItem>
-                    <SelectItem value="INACTIVE">It needs repair (Inactive)</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="space-y-1">
+                <Label className="font-medium">Reason for Exchange</Label>
+                <Input 
+                  value={exchangeFormData.reason} 
+                  onChange={e => setExchangeFormData({...exchangeFormData, reason: e.target.value})}
+                  required
+                  placeholder="e.g. Flat tyre, Engine breakdown"
+                />
               </div>
 
-              <div className="space-y-2">
-                <Label>Reason for Exchange</Label>
-                <Input value={exchangeFormData.reason} onChange={e => setExchangeFormData({...exchangeFormData, reason: e.target.value})} placeholder="e.g., Engine failure, flat tire..." required />
-                <p className="text-xs text-muted-foreground">This note will be permanently added to the rental record.</p>
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-4">
+              <div className="flex justify-end space-x-2 pt-2">
                 <Button type="button" variant="outline" onClick={() => setIsExchangeOpen(false)}>Cancel</Button>
-                <Button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white shadow-sm">Exchange Vehicle</Button>
+                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Confirm Exchange</Button>
               </div>
             </form>
           )}
