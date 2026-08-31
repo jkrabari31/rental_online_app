@@ -118,6 +118,7 @@ export function Reports() {
 
       const data = exportRentals.map((r: any) => ({
         'Rental ID': `RNT-${r.id}`,
+        'Branch': r.branch?.name || '',
         'Customer Name': r.customer.name,
         'Customer Mobile': r.customer.mobileNumber,
         'Vehicle': `${r.vehicle.vehicleName} (${r.vehicle.vehicleNumber})`,
@@ -130,11 +131,13 @@ export function Reports() {
         'Settlement': r.settlementAmount || 0,
         'Net Amount': r.totalAmount || 0,
         'Deposit': r.depositAmount || 0,
+        'Payment Mode': r.paymentMode || 'CASH',
         'Notes': r.notes || '',
       }));
 
       data.push({
         'Rental ID': '',
+        'Branch': '',
         'Customer Name': '',
         'Customer Mobile': '',
         'Vehicle': '',
@@ -147,6 +150,7 @@ export function Reports() {
         'Settlement': totalSettlements,
         'Net Amount': totalRevenue,
         'Deposit': '' as any,
+        'Payment Mode': '',
         'Notes': '',
       });
 

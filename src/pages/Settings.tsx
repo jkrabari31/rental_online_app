@@ -109,7 +109,8 @@ export function Settings() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="EXACT">Exact (Minute by Minute)</SelectItem>
-                    <SelectItem value="ROUND_UP">Round Up to Next Hour</SelectItem>
+                    <SelectItem value="CEIL">Round Up to Next Hour</SelectItem>
+                    <SelectItem value="GRACE_PERIOD">Grace Period (0–15 min free · 16–45 min = ½hr · 46+ min = 1hr)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

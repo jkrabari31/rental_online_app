@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireAdmin, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/settings
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
+// GET /api/settings — readable by ALL logged-in users (branch needs rounding rule)
+router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     let setting = await prisma.setting.findFirst();
     if (!setting) {

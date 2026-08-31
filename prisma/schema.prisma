@@ -100,6 +100,7 @@ model Rental {
   totalHours       Float?
   totalAmount      Float?
   settlementAmount Float?    @default(0)
+  paymentMode      String    @default("CASH") // CASH, ONLINE
   isAccident       Boolean   @default(false)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -130,7 +131,7 @@ model MaintenanceExpense {
 model Setting {
   id                   String   @id @default(uuid())
   currencySymbol       String   @default("₹")
-  hourlyRoundingRule   String   @default("EXACT") // EXACT, ROUND_UP
+  hourlyRoundingRule   String   @default("EXACT") // EXACT, CEIL, ROUND_30, GRACE_15, GRACE_PERIOD
   defaultDepositAmount Float    @default(0)
   companyName          String   @default("My Rental Company")
   companyAddress       String   @default("")

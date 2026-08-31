@@ -66,6 +66,7 @@ export function CompletedRentals() {
 
     const data = filteredRentals.map(r => ({
       'Rental ID': `RNT-${r.id}`,
+      'Branch': r.branch?.name || '',
       'Customer Name': r.customer.name,
       'Customer Mobile': r.customer.mobileNumber,
       'Vehicle': `${r.vehicle.vehicleName} (${r.vehicle.vehicleNumber})`,
@@ -77,6 +78,7 @@ export function CompletedRentals() {
       'Settlement': r.settlementAmount || 0,
       'Net Amount': r.totalAmount || 0,
       'Deposit': r.depositAmount || 0,
+      'Payment Mode': r.paymentMode || 'CASH',
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
@@ -116,6 +118,7 @@ export function CompletedRentals() {
           <tr><td style="padding: 6px 0; color: #666;">Deposit</td><td style="padding: 6px 0; text-align: right;">${currencySymbol}${rental.depositAmount || 0}</td></tr>
           <tr style="border-top: 1px solid #eee;"><td style="padding: 6px 0; color: #666;">Base Rent & Overtime</td><td style="padding: 6px 0; text-align: right;">${currencySymbol}${(Number(rental.totalAmount || 0) - Number(rental.settlementAmount || 0)).toFixed(2)}</td></tr>
           <tr><td style="padding: 6px 0; color: #666;">Settlement Adjustments</td><td style="padding: 6px 0; text-align: right;">${Number(rental.settlementAmount) < 0 ? '-' : ''}${currencySymbol}${Math.abs(Number(rental.settlementAmount || 0)).toFixed(2)}</td></tr>
+          <tr style="border-top: 1px solid #eee;"><td style="padding: 6px 0; color: #666;">Payment Mode</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: ${(rental.paymentMode || 'CASH') === 'ONLINE' ? '#2563eb' : '#059669'}">${rental.paymentMode === 'ONLINE' ? '📱 Online / UPI' : '💵 Cash'}</td></tr>
         </table>
         <div style="border-top: 2px solid #333; margin-top: 15px; padding-top: 15px; text-align: center;">
           <div style="font-size: 22px; font-weight: 700;">Total: ${currencySymbol}${Number(rental.totalAmount || 0).toFixed(2)}</div>
@@ -182,6 +185,7 @@ export function CompletedRentals() {
               <TableHead>Hours</TableHead>
               <TableHead>Package</TableHead>
               <TableHead>Amount</TableHead>
+              <TableHead>Payment</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -210,6 +214,15 @@ export function CompletedRentals() {
                     <div className="text-[10px] text-amber-600 dark:text-amber-500 whitespace-nowrap">Deposit: {currencySymbol}{r.depositAmount}</div>
                   )}
                 </TableCell>
+                <TableCell>
+                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${
+                    (r.paymentMode || 'CASH') === 'ONLINE'
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+                  }`}>
+                    {(r.paymentMode || 'CASH') === 'ONLINE' ? '📱 Online' : '💵 Cash'}
+                  </span>
+                </TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="sm" onClick={() => printReceipt(r)}>
                     <Printer className="w-4 h-4" />
@@ -219,7 +232,7 @@ export function CompletedRentals() {
             ))}
             {filteredRentals.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                   No completed rentals found for the selected date range.
                 </TableCell>
               </TableRow>

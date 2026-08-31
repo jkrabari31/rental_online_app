@@ -50,6 +50,7 @@ export function ActiveRentals() {
   const [returnFormData, setReturnFormData] = useState({
     returnDate: new Date(),
     settlementAmount: 0,
+    paymentMode: 'CASH' as 'CASH' | 'ONLINE',
     notes: ''
   });
 
@@ -58,6 +59,15 @@ export function ActiveRentals() {
     loadAvailableVehicles(false);
     loadSettings();
   }, []);
+
+  // Auto-sync settlementAmount with the live calculated total whenever
+  // the return dialog is open, the return time changes, or settings load.
+  useEffect(() => {
+    if (!isReturnOpen || !selectedRental) return;
+    const details = calculateReturnAmount();
+    setReturnFormData(prev => ({ ...prev, settlementAmount: parseFloat(details.totalAmount) || 0 }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReturnOpen, returnFormData.returnDate, settings]);
 
   const loadSettings = async () => {
     try {
@@ -212,9 +222,12 @@ export function ActiveRentals() {
     setSelectedRental(rental);
     setReturnFormData({
       returnDate: new Date(),
-      settlementAmount: 0,
+      settlementAmount: 0, // will be auto-updated by the useEffect above
+      paymentMode: 'CASH',
       notes: rental.notes || ''
     });
+    // Re-fetch settings every time dialog opens to ensure latest rounding rule
+    loadSettings();
     setIsReturnOpen(true);
   };
 
@@ -240,37 +253,54 @@ export function ActiveRentals() {
   };
 
   const calculateReturnAmount = () => {
-    if (!selectedRental) return { chargeableHours: 0, totalAmount: 0, roundedHoursDisplay: 0, minutes: 0, rawHours: 0, baseAmount: 0, extraCharge: 0 };
+    if (!selectedRental) {
+      return {
+        chargeableHours: '0.00',
+        actualDurationHHMM: '00:00',
+        actualDurationText: '0 mins',
+        chargeableDurationHHMM: '00:00',
+        chargeableDurationText: '0 mins',
+        extraDurationText: '',
+        totalAmount: '0.00',
+        baseAmount: '0.00',
+        extraCharge: '0.00',
+        isPackage: false,
+        pkgName: 'HOURLY',
+      };
+    }
     
     const start = new Date(selectedRental.pickupDate);
     const end = returnFormData.returnDate;
 
     if (end < start) {
-      return { chargeableHours: 0, totalAmount: 0, roundedHoursDisplay: 0, minutes: 0, rawHours: 0, baseAmount: 0, extraCharge: 0 };
+      return {
+        chargeableHours: '0.00',
+        actualDurationHHMM: '00:00',
+        actualDurationText: '0 mins',
+        chargeableDurationHHMM: '00:00',
+        chargeableDurationText: '0 mins',
+        extraDurationText: '',
+        totalAmount: '0.00',
+        baseAmount: '0.00',
+        extraCharge: '0.00',
+        isPackage: false,
+        pkgName: 'HOURLY',
+      };
     }
 
-    const diffMins = differenceInMinutes(end, start);
-    const rawHours = diffMins / 60;
-    const minutes = diffMins % 60;
+    // Actual duration in 60-minute standard format
+    const diffMins = Math.max(0, differenceInMinutes(end, start));
+    const actualHrs = Math.floor(diffMins / 60);
+    const actualMins = diffMins % 60;
+    const actualDurationHHMM = `${actualHrs.toString().padStart(2, '0')}:${actualMins.toString().padStart(2, '0')}`;
+    const actualDurationText =
+      actualHrs === 0
+        ? `${actualMins} min${actualMins !== 1 ? 's' : ''}`
+        : actualMins === 0
+        ? `${actualHrs} hr${actualHrs !== 1 ? 's' : ''}`
+        : `${actualHrs} hr ${actualMins} min${actualMins !== 1 ? 's' : ''}`;
 
-    let chargeableHours = 0;
     const roundingRule = settings?.hourlyRoundingRule || 'EXACT';
-
-    if (roundingRule === 'EXACT') {
-      chargeableHours = rawHours;
-    } else if (roundingRule === 'CEIL') {
-      chargeableHours = Math.ceil(rawHours);
-    } else if (roundingRule === 'ROUND_30') {
-      const whole = Math.floor(rawHours);
-      if (minutes === 0) chargeableHours = whole;
-      else if (minutes <= 30) chargeableHours = whole + 0.5;
-      else chargeableHours = whole + 1;
-    } else if (roundingRule === 'GRACE_15') {
-      const whole = Math.floor(rawHours);
-      if (minutes <= 15) chargeableHours = whole;
-      else chargeableHours = whole + 1;
-    }
-
     const vehicle = selectedRental.vehicle;
     const hourlyRate = vehicle.hourlyRate || 0;
     const pkg = selectedRental.selectedPackage || 'HOURLY';
@@ -286,26 +316,122 @@ export function ActiveRentals() {
 
     let baseAmount = 0;
     let extraCharge = 0;
+    let chargeableHours = 0;
+    let extraHours = 0;
 
     if (pkgHours > 0) {
+      // Fixed Package: Base amount is fixed package price
       baseAmount = pkgPrice;
-      const extraHours = Math.max(0, chargeableHours - pkgHours);
+      const pkgMinutes = pkgHours * 60;
+      const overtimeMinutes = Math.max(0, diffMins - pkgMinutes);
+
+      if (overtimeMinutes > 0) {
+        if (roundingRule === 'EXACT') {
+          extraHours = overtimeMinutes / 60;
+        } else if (roundingRule === 'CEIL') {
+          extraHours = Math.ceil(overtimeMinutes / 60);
+        } else if (roundingRule === 'ROUND_30') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem === 0 ? whole : rem <= 30 ? whole + 0.5 : whole + 1;
+        } else if (roundingRule === 'GRACE_15') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem <= 15 ? whole : whole + 1;
+        } else if (roundingRule === 'GRACE_PERIOD') {
+          // Grace Period rule: 0-15m free grace, 16-45m = +0.5 hr, 46m+ = +1.0 hr
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          if (rem <= 15) {
+            extraHours = whole;
+          } else if (rem <= 45) {
+            extraHours = whole + 0.5;
+          } else {
+            extraHours = whole + 1;
+          }
+        }
+      }
+
       extraCharge = extraHours * hourlyRate;
+      chargeableHours = pkgHours + extraHours;
     } else {
-      baseAmount = chargeableHours * hourlyRate;
-      extraCharge = 0;
+      // HOURLY Rental: First 1 Hour (60 min) is FIXED minimum base rate!
+      baseAmount = hourlyRate;
+      const overtimeMinutes = Math.max(0, diffMins - 60);
+
+      if (overtimeMinutes > 0) {
+        if (roundingRule === 'EXACT') {
+          extraHours = overtimeMinutes / 60;
+        } else if (roundingRule === 'CEIL') {
+          extraHours = Math.ceil(overtimeMinutes / 60);
+        } else if (roundingRule === 'ROUND_30') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem === 0 ? whole : rem <= 30 ? whole + 0.5 : whole + 1;
+        } else if (roundingRule === 'GRACE_15') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem <= 15 ? whole : whole + 1;
+        } else if (roundingRule === 'GRACE_PERIOD') {
+          // Fixed 1st Hour + Overtime Grace Period:
+          // 0-15 min extra (total <= 75 min) = 0 extra (within grace)
+          // 16-45 min extra (total 76-105 min) = +0.5 hr extra
+          // 46+ min extra (total 106+ min) = +1.0 hr extra
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          if (rem <= 15) {
+            extraHours = whole;
+          } else if (rem <= 45) {
+            extraHours = whole + 0.5;
+          } else {
+            extraHours = whole + 1;
+          }
+        }
+      }
+
+      extraCharge = extraHours * hourlyRate;
+      chargeableHours = 1 + extraHours;
     }
 
     const totalAmount = Math.max(0, baseAmount + extraCharge);
 
+    // Formatted chargeable duration in 60-minute standard format
+    const chargeableTotalMins = Math.round(chargeableHours * 60);
+    const chargeHrs = Math.floor(chargeableTotalMins / 60);
+    const chargeMins = chargeableTotalMins % 60;
+    const chargeableDurationHHMM = `${chargeHrs.toString().padStart(2, '0')}:${chargeMins.toString().padStart(2, '0')}`;
+    const chargeableDurationText =
+      chargeHrs === 0
+        ? `${chargeMins} min${chargeMins !== 1 ? 's' : ''}`
+        : chargeMins === 0
+        ? `${chargeHrs} hr${chargeHrs !== 1 ? 's' : ''}`
+        : `${chargeHrs} hr ${chargeMins} min${chargeMins !== 1 ? 's' : ''}`;
+
+    // Extra overtime text formatted in 60-minute format
+    const extraTotalMins = Math.round(extraHours * 60);
+    const extraHrsCount = Math.floor(extraTotalMins / 60);
+    const extraMinsCount = extraTotalMins % 60;
+    const extraDurationText =
+      extraTotalMins > 0
+        ? extraHrsCount === 0
+          ? `${extraMinsCount} mins (+${extraHours} hr)`
+          : extraMinsCount === 0
+          ? `${extraHrsCount} hrs (+${extraHours} hr)`
+          : `${extraHrsCount} hr ${extraMinsCount} min (+${extraHours} hr)`
+        : '';
+
     return {
       chargeableHours: chargeableHours.toFixed(2),
-      roundedHoursDisplay: Math.ceil(chargeableHours),
-      minutes,
-      rawHours: rawHours.toFixed(2),
+      actualDurationHHMM,
+      actualDurationText,
+      chargeableDurationHHMM,
+      chargeableDurationText,
+      extraDurationText,
       totalAmount: totalAmount.toFixed(2),
       baseAmount: baseAmount.toFixed(2),
-      extraCharge: extraCharge.toFixed(2)
+      extraCharge: extraCharge.toFixed(2),
+      isPackage: pkgHours > 0,
+      pkgName: pkg,
     };
   };
 
@@ -322,6 +448,7 @@ export function ActiveRentals() {
           totalHours: Number(returnDetails.chargeableHours),
           totalAmount: Number(returnDetails.totalAmount),
           settlementAmount: Number(returnFormData.settlementAmount) || 0,
+          paymentMode: returnFormData.paymentMode,
           notes: returnFormData.notes
         }
       });
@@ -790,19 +917,42 @@ export function ActiveRentals() {
 
               {/* Calculation Summary */}
               <div className="bg-blue-50/60 dark:bg-blue-950/30 p-4 rounded-xl border border-blue-100 dark:border-blue-900 space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">Total Rental Duration:</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">{returnDetails.chargeableHours} Hours ({returnDetails.rawHours} hrs actual)</span>
+                {/* Active rounding rule badge */}
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Billing Calculation</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    settings?.hourlyRoundingRule === 'GRACE_PERIOD'
+                      ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300'
+                      : settings?.hourlyRoundingRule === 'CEIL'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                  }`}>
+                    {settings?.hourlyRoundingRule === 'GRACE_PERIOD' ? '⏱ Grace Period (15/45 min)'
+                      : settings?.hourlyRoundingRule === 'CEIL' ? '↑ Round Up'
+                      : settings?.hourlyRoundingRule === 'ROUND_30' ? '½ Round 30 min'
+                      : settings?.hourlyRoundingRule === 'GRACE_15' ? '⏱ Grace 15 min'
+                      : '⚡ Exact'}
+                  </span>
                 </div>
 
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">Base Rent Amount:</span>
-                  <span className="font-semibold">{currencySymbol}{returnDetails.baseAmount}</span>
+                  <span className="text-slate-600 dark:text-slate-400">Actual Duration:</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{returnDetails.actualDurationHHMM} ({returnDetails.actualDurationText})</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Chargeable Time:</span>
+                  <span className="font-semibold text-blue-600 dark:text-blue-400">{returnDetails.chargeableDurationHHMM} ({returnDetails.chargeableDurationText})</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Base Rent:</span>
+                  <span className="font-semibold">{currencySymbol}{returnDetails.baseAmount} {returnDetails.isPackage ? `(${returnDetails.pkgName} Package)` : '(1st Hr Fixed)'}</span>
                 </div>
 
                 {Number(returnDetails.extraCharge) > 0 && (
                   <div className="flex justify-between text-sm text-amber-600 dark:text-amber-400">
-                    <span>Extra Hours Charge:</span>
+                    <span>Extra Charge {returnDetails.extraDurationText ? `(${returnDetails.extraDurationText})` : ''}:</span>
                     <span className="font-semibold">+{currencySymbol}{returnDetails.extraCharge}</span>
                   </div>
                 )}
@@ -826,10 +976,39 @@ export function ActiveRentals() {
                   type="number" 
                   value={returnFormData.settlementAmount} 
                   onChange={e => setReturnFormData({...returnFormData, settlementAmount: parseFloat(e.target.value) || 0})}
-                  placeholder="Override if discount/penalty applies"
+                  placeholder="Amount received from customer"
                   className="h-11 text-lg font-bold text-emerald-600"
                 />
-                <p className="text-xs text-muted-foreground">Default is {currencySymbol}{returnDetails.totalAmount}. Adjust if giving discount or extra charge.</p>
+                <p className="text-xs text-muted-foreground">Auto-filled from calculation. Adjust only if giving a discount or extra charge.</p>
+              </div>
+
+              {/* Payment Mode */}
+              <div className="space-y-2">
+                <Label className="font-medium">Payment Mode</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setReturnFormData({...returnFormData, paymentMode: 'CASH'})}
+                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all duration-150 ${
+                      returnFormData.paymentMode === 'CASH'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-lg">💵</span> Cash
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReturnFormData({...returnFormData, paymentMode: 'ONLINE'})}
+                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all duration-150 ${
+                      returnFormData.paymentMode === 'ONLINE'
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-500 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-lg">📱</span> Online / UPI
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1">

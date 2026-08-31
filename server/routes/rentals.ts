@@ -124,6 +124,7 @@ router.post('/:id/return', requireAuth, async (req: Request, res: Response) => {
           totalHours: Number(returnData.totalHours),
           totalAmount: Number(returnData.totalAmount),
           settlementAmount: Number(returnData.settlementAmount) || 0,
+          paymentMode: returnData.paymentMode || 'CASH',
           notes: returnData.notes || null,
           status: 'COMPLETED',
         },
