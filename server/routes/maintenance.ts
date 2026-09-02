@@ -54,4 +54,66 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// PUT /api/maintenance/:id
+router.put('/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+
+    const existing = await prisma.maintenanceExpense.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ error: 'Maintenance record not found.' });
+      return;
+    }
+
+    if (user.role !== 'ADMIN' && user.branchId && existing.branchId !== user.branchId) {
+      res.status(403).json({ error: 'You do not have permission to modify this maintenance record.' });
+      return;
+    }
+
+    const { vehicleId, date, amount, remarks } = req.body;
+    const updateData: any = {};
+    if (vehicleId) updateData.vehicleId = vehicleId;
+    if (date) updateData.date = new Date(date);
+    if (amount !== undefined) updateData.amount = parseFloat(amount);
+    if (remarks !== undefined) updateData.remarks = remarks || null;
+
+    const record = await prisma.maintenanceExpense.update({
+      where: { id },
+      data: updateData,
+      include: { vehicle: true },
+    });
+
+    res.json(record);
+  } catch (error: any) {
+    console.error('Update maintenance error:', error);
+    res.status(500).json({ error: 'Failed to update maintenance record: ' + error.message });
+  }
+});
+
+// DELETE /api/maintenance/:id
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = req.session.user!;
+
+    const existing = await prisma.maintenanceExpense.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ error: 'Maintenance record not found.' });
+      return;
+    }
+
+    if (user.role !== 'ADMIN' && user.branchId && existing.branchId !== user.branchId) {
+      res.status(403).json({ error: 'You do not have permission to delete this maintenance record.' });
+      return;
+    }
+
+    await prisma.maintenanceExpense.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete maintenance error:', error);
+    res.status(500).json({ error: 'Failed to delete maintenance record: ' + error.message });
+  }
+});
+
 export default router;

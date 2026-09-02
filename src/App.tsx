@@ -11,6 +11,7 @@ import { Vehicles } from './pages/Vehicles';
 import { ActiveRentals } from './pages/ActiveRentals';
 import { CompletedRentals } from './pages/CompletedRentals';
 import { Reports } from './pages/Reports';
+import { Analysis } from './pages/Analysis';
 import { Settings } from './pages/Settings';
 import { Maintenance } from './pages/Maintenance';
 
@@ -45,6 +46,9 @@ function AppRoutes() {
         <Route path="/vehicles" element={<Vehicles />} />
         <Route path="/rentals" element={<ActiveRentals />} />
         <Route path="/maintenance" element={<Maintenance />} />
+
+        {/* Admin & Shared Analytics Route */}
+        <Route path="/analytics" element={<Analysis />} />
 
         {/* Admin Only Routes */}
         <Route 

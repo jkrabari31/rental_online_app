@@ -173,7 +173,7 @@ export function CompletedRentals() {
         </div>
       </div>
 
-      <div className="border rounded-xl bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+      <div className="border rounded-xl bg-white dark:bg-slate-900 shadow-sm overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="bg-slate-50 dark:bg-slate-800/50">

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, getBranchScope } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, getBranchScope } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -53,7 +53,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = req.session.user!;
     const branchId = user.role === 'ADMIN'
-      ? (req.body.branchId || req.query.branchId)
+      ? (req.body.branchId || req.query.branchId || user.branchId)
       : user.branchId;
 
     if (!branchId) {
@@ -68,6 +68,17 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
+    // Verify vehicle availability
+    const targetVehicle = await prisma.vehicle.findUnique({ where: { id: rentalData.vehicleId } });
+    if (!targetVehicle) {
+      res.status(404).json({ error: 'Selected vehicle not found.' });
+      return;
+    }
+    if (targetVehicle.status === 'RENTED') {
+      res.status(400).json({ error: 'This vehicle is currently already on rent.' });
+      return;
+    }
+
     let customer;
     if (customerData.id) {
       const { id, createdAt, updatedAt, ...updateData } = customerData;
@@ -78,7 +89,12 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     } else {
       customer = await prisma.customer.create({
         data: {
-          ...customerData,
+          name: customerData.name || '',
+          mobileNumber: customerData.mobileNumber || '',
+          email: customerData.email || null,
+          address: customerData.address || null,
+          idProofType: customerData.idProofType || 'Aadhaar Card',
+          idProofNumber: customerData.idProofNumber || '',
           branchId,
         },
       });
@@ -91,7 +107,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
           customerId: customer.id,
           branchId,
           pickupDate: new Date(rentalData.pickupDate),
-          depositAmount: Number(rentalData.depositAmount),
+          depositAmount: Number(rentalData.depositAmount) || 0,
           selectedPackage: rentalData.selectedPackage || 'HOURLY',
           notes: rentalData.notes || null,
         },
@@ -112,30 +128,54 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 // POST /api/rentals/:id/return — Complete return
 router.post('/:id/return', requireAuth, async (req: Request, res: Response) => {
   try {
+    const user = req.session.user!;
     const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const rentalId = parseInt(paramId);
-    const { returnData, vehicleId } = req.body;
+    const rentalId = parseInt(paramId, 10);
 
-    const [rental] = await prisma.$transaction([
+    if (isNaN(rentalId)) {
+      res.status(400).json({ error: 'Invalid rental ID.' });
+      return;
+    }
+
+    const rental = await prisma.rental.findUnique({ where: { id: rentalId } });
+    if (!rental) {
+      res.status(404).json({ error: 'Rental record not found.' });
+      return;
+    }
+
+    if (rental.status === 'COMPLETED') {
+      res.status(400).json({ error: 'This rental has already been marked as completed.' });
+      return;
+    }
+
+    if (user.role !== 'ADMIN' && user.branchId && rental.branchId !== user.branchId) {
+      res.status(403).json({ error: 'You do not have permission to return rentals for another branch.' });
+      return;
+    }
+
+    const { returnData, vehicleId } = req.body;
+    const targetVehicleId = vehicleId || rental.vehicleId;
+
+    const [completedRental] = await prisma.$transaction([
       prisma.rental.update({
         where: { id: rentalId },
         data: {
-          returnDate: new Date(returnData.returnDate),
-          totalHours: Number(returnData.totalHours),
-          totalAmount: Number(returnData.totalAmount),
-          settlementAmount: Number(returnData.settlementAmount) || 0,
-          paymentMode: returnData.paymentMode || 'CASH',
-          notes: returnData.notes || null,
+          returnDate: returnData?.returnDate ? new Date(returnData.returnDate) : new Date(),
+          totalHours: Number(returnData?.totalHours) || 0,
+          totalAmount: Number(returnData?.totalAmount) || 0,
+          settlementAmount: Number(returnData?.settlementAmount) || 0,
+          paymentMode: returnData?.paymentMode || 'CASH',
+          notes: returnData?.notes || rental.notes || null,
           status: 'COMPLETED',
         },
       }),
       prisma.vehicle.update({
-        where: { id: vehicleId },
+        where: { id: targetVehicleId },
         data: { status: 'AVAILABLE' },
       }),
     ]);
 
-    res.json(rental);
+    res.json(completedRental);
   } catch (error: any) {
     console.error('Return vehicle error:', error);
     res.status(500).json({ error: 'Failed to complete return: ' + error.message });
@@ -146,7 +186,7 @@ router.post('/:id/return', requireAuth, async (req: Request, res: Response) => {
 router.post('/:id/swap', requireAuth, async (req: Request, res: Response) => {
   try {
     const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const rentalId = parseInt(paramId);
+    const rentalId = parseInt(paramId, 10);
     const { oldVehicleId, newVehicleId, oldVehicleStatus, notesAppend } = req.body;
 
     const rental = await prisma.rental.findUnique({ where: { id: rentalId } });
@@ -164,7 +204,7 @@ router.post('/:id/swap', requireAuth, async (req: Request, res: Response) => {
       }),
       prisma.vehicle.update({
         where: { id: oldVehicleId },
-        data: { status: oldVehicleStatus },
+        data: { status: oldVehicleStatus || 'AVAILABLE' },
       }),
       prisma.vehicle.update({
         where: { id: newVehicleId },
@@ -183,12 +223,12 @@ router.post('/:id/swap', requireAuth, async (req: Request, res: Response) => {
 router.patch('/:id/accident', requireAuth, async (req: Request, res: Response) => {
   try {
     const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const rentalId = parseInt(paramId);
+    const rentalId = parseInt(paramId, 10);
     const { isAccident } = req.body;
 
     const rental = await prisma.rental.update({
       where: { id: rentalId },
-      data: { isAccident },
+      data: { isAccident: Boolean(isAccident) },
     });
 
     res.json(rental);
@@ -199,13 +239,8 @@ router.patch('/:id/accident', requireAuth, async (req: Request, res: Response) =
 });
 
 // POST /api/rentals/truncate — Delete all completed rentals (admin only)
-router.post('/truncate', requireAuth, async (req: Request, res: Response) => {
+router.post('/truncate', requireAdmin, async (req: Request, res: Response) => {
   try {
-    if (req.session.user!.role !== 'ADMIN') {
-      res.status(403).json({ error: 'Admin access required.' });
-      return;
-    }
-
     const result = await prisma.rental.deleteMany({
       where: { status: 'COMPLETED' },
     });

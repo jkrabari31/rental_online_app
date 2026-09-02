@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, getBranchScope } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, getBranchScope } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -65,13 +65,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 });
 
 // GET /api/dashboard/admin — Master dashboard for admin
-router.get('/admin', requireAuth, async (req: Request, res: Response) => {
+router.get('/admin', requireAdmin, async (req: Request, res: Response) => {
   try {
-    if (req.session.user!.role !== 'ADMIN') {
-      res.status(403).json({ error: 'Admin access required.' });
-      return;
-    }
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);

@@ -5,6 +5,9 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import connectPgSimple from 'connect-pg-simple';
+import pg from 'pg';
+
 // Route imports
 import authRoutes from './routes/auth.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -15,6 +18,8 @@ import maintenanceRoutes from './routes/maintenance.js';
 import settingsRoutes from './routes/settings.js';
 import branchRoutes from './routes/branches.js';
 import userRoutes from './routes/users.js';
+import backupRoutes from './routes/backup.js';
+import analyticsRoutes from './routes/analytics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,8 +30,8 @@ const PORT = parseInt(process.env.PORT || '3001');
 const isDev = process.env.NODE_ENV !== 'production';
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 if (isDev) {
   app.use(cors({
@@ -35,13 +40,27 @@ if (isDev) {
   }));
 }
 
+// Session store in PostgreSQL
+const PgSessionStore = connectPgSimple(session);
+const sessionPool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
 // Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'fallback-secret-change-me',
+  store: new PgSessionStore({
+    pool: sessionPool,
+    tableName: 'session',
+    createTableIfMissing: true,
+  }),
+  secret: process.env.SESSION_SECRET || 'sb-bike-rental-secure-session-key-2026',
   resave: false,
   saveUninitialized: false,
+  rolling: true, // Resets 24-hour expiration on every user request
   cookie: {
-    secure: !isDev, // HTTPS only in production
+    // Only enforce HTTPS secure cookies if COOKIE_SECURE is explicitly true
+    // This allows immediate deployment to HTTP VPS without silent cookie drops
+    secure: process.env.COOKIE_SECURE === 'true',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax',
@@ -58,6 +77,13 @@ app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/backup', backupRoutes);
+app.use('/api/analytics', analyticsRoutes);
+
+// Explicit 404 for non-existent /api routes
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+});
 
 // In production, serve the React build
 if (!isDev) {
