@@ -10,14 +10,29 @@ export async function apiFetch<T = any>(
 ): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    credentials: 'include', // Send session cookies
-  });
+  // Default to 20-second timeout if none provided to avoid infinite loading spinners
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      credentials: 'include', // Send session cookies
+    });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. The server took too long to respond.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (response.status === 401) {
     // Session expired or not logged in — redirect to login

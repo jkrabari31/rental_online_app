@@ -160,13 +160,15 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       const targetDate = r.returnDate || r.pickupDate || r.createdAt;
       if (targetDate) {
         const dObj = new Date(targetDate);
-        const dayStr = dObj.toISOString().slice(0, 10);
-        const dayData = timelineMap.get(dayStr) || { revenue: 0, maintenance: 0, rentalsCount: 0, cash: 0, online: 0 };
-        dayData.revenue += amount;
-        dayData.rentalsCount++;
-        if (pMode === 'ONLINE') dayData.online += amount;
-        else dayData.cash += amount;
-        timelineMap.set(dayStr, dayData);
+        if (!isNaN(dObj.getTime())) {
+          const dayStr = dObj.toISOString().slice(0, 10);
+          const dayData = timelineMap.get(dayStr) || { revenue: 0, maintenance: 0, rentalsCount: 0, cash: 0, online: 0 };
+          dayData.revenue += amount;
+          dayData.rentalsCount++;
+          if (pMode === 'ONLINE') dayData.online += amount;
+          else dayData.cash += amount;
+          timelineMap.set(dayStr, dayData);
+        }
       }
     });
 
@@ -192,10 +194,15 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
       // Timeline Map
       const targetDate = m.date || m.createdAt;
-      const dayStr = new Date(targetDate).toISOString().slice(0, 10);
-      const dayData = timelineMap.get(dayStr) || { revenue: 0, maintenance: 0, rentalsCount: 0, cash: 0, online: 0 };
-      dayData.maintenance += cost;
-      timelineMap.set(dayStr, dayData);
+      if (targetDate) {
+        const dObj = new Date(targetDate);
+        if (!isNaN(dObj.getTime())) {
+          const dayStr = dObj.toISOString().slice(0, 10);
+          const dayData = timelineMap.get(dayStr) || { revenue: 0, maintenance: 0, rentalsCount: 0, cash: 0, online: 0 };
+          dayData.maintenance += cost;
+          timelineMap.set(dayStr, dayData);
+        }
+      }
     });
 
     const netProfit = totalRevenue - totalMaintenance;
