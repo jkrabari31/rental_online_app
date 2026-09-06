@@ -32,10 +32,18 @@ router.get('/find', requireAuth, async (req: Request, res: Response) => {
     const where: any = { mobileNumber };
     if (branchId) where.branchId = branchId;
 
-    const customer = await prisma.customer.findFirst({
+    let customer = await prisma.customer.findFirst({
       where,
       orderBy: { createdAt: 'desc' },
     });
+
+    // If not found in current branch, check globally so repeat customers don't have to re-enter ID proof
+    if (!customer && branchId) {
+      customer = await prisma.customer.findFirst({
+        where: { mobileNumber },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
 
     res.json(customer);
   } catch (error: any) {

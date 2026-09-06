@@ -3,6 +3,7 @@ import express from 'express';
 import session from 'express-session';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 import connectPgSimple from 'connect-pg-simple';
@@ -45,6 +46,9 @@ const PgSessionStore = connectPgSimple(session);
 const sessionPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
+sessionPool.on('error', (err) => {
+  console.error('Unexpected error on idle session PostgreSQL client:', err);
+});
 
 // Session configuration
 app.use(session({
@@ -85,9 +89,9 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
 });
 
-// In production, serve the React build
-if (!isDev) {
-  const distPath = path.join(__dirname, '../dist');
+// Serve the React build whenever dist exists (production or built server)
+const distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 
   // All non-API routes serve the React SPA

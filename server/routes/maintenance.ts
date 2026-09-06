@@ -27,10 +27,26 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 // POST /api/maintenance
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
+    const { vehicleId, date, amount, remarks } = req.body;
+    if (!vehicleId) {
+      res.status(400).json({ error: 'Vehicle ID is required.' });
+      return;
+    }
+
+    const targetVehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
+    if (!targetVehicle) {
+      res.status(404).json({ error: 'Selected vehicle not found.' });
+      return;
+    }
+
     const user = req.session.user!;
-    const branchId = user.role === 'ADMIN'
-      ? (req.body.branchId || req.query.branchId)
-      : user.branchId;
+    let branchId = user.role === 'ADMIN'
+      ? (req.body.branchId || req.query.branchId || user.branchId || targetVehicle.branchId)
+      : (user.branchId || targetVehicle.branchId);
+
+    if (!branchId) {
+      branchId = targetVehicle.branchId;
+    }
 
     if (!branchId) {
       res.status(400).json({ error: 'Branch ID is required.' });
@@ -39,11 +55,11 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
     const record = await prisma.maintenanceExpense.create({
       data: {
-        vehicleId: req.body.vehicleId,
+        vehicleId,
         branchId,
-        date: new Date(req.body.date),
-        amount: parseFloat(req.body.amount),
-        remarks: req.body.remarks || null,
+        date: new Date(date),
+        amount: parseFloat(amount) || 0,
+        remarks: remarks || null,
       },
     });
 

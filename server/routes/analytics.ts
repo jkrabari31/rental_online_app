@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/analytics
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+// GET /api/analytics (admin only)
+router.get('/', requireAdmin, async (req: Request, res: Response) => {
   try {
     const userRole = req.session.user?.role;
     const userBranchId = req.session.user?.branchId;
@@ -27,12 +27,19 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     let end: Date;
 
     if (!isAllTime && startDateParam && endDateParam) {
-      start = new Date(startDateParam);
-      start.setHours(0, 0, 0, 0);
-      end = new Date(endDateParam);
-      end.setHours(23, 59, 59, 999);
-      // Add extra 1 day buffer to end to avoid UTC timezone clipping
-      end = new Date(end.getTime() + 86400000);
+      const parsedStart = new Date(startDateParam);
+      const parsedEnd = new Date(endDateParam);
+      if (!isNaN(parsedStart.getTime()) && !isNaN(parsedEnd.getTime())) {
+        start = parsedStart;
+        start.setHours(0, 0, 0, 0);
+        end = parsedEnd;
+        end.setHours(23, 59, 59, 999);
+        // Add extra 1 day buffer to end to avoid UTC timezone clipping
+        end = new Date(end.getTime() + 86400000);
+      } else {
+        start = new Date('2020-01-01T00:00:00.000Z');
+        end = new Date('2030-12-31T23:59:59.999Z');
+      }
     } else {
       // Default: wide range or all time
       start = new Date('2020-01-01T00:00:00.000Z');

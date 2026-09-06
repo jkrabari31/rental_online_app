@@ -45,12 +45,18 @@ function AppRoutes() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/vehicles" element={<Vehicles />} />
         <Route path="/rentals" element={<ActiveRentals />} />
+        <Route path="/completed" element={<CompletedRentals />} />
         <Route path="/maintenance" element={<Maintenance />} />
 
-        {/* Admin & Shared Analytics Route */}
-        <Route path="/analytics" element={<Analysis />} />
-
         {/* Admin Only Routes */}
+        <Route 
+          path="/analytics" 
+          element={
+            <ProtectedRoute allowedRoles={['ADMIN']}>
+              <Analysis />
+            </ProtectedRoute>
+          } 
+        />
         <Route 
           path="/admin/dashboard" 
           element={
@@ -72,14 +78,6 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={['ADMIN']}>
               <UserManagement />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/completed" 
-          element={
-            <ProtectedRoute allowedRoles={['ADMIN']}>
-              <CompletedRentals />
             </ProtectedRoute>
           } 
         />

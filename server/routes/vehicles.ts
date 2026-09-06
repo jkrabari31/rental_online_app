@@ -33,10 +33,20 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = req.session.user!;
     const targetBranchId = (req.body.branchId || req.query.branchId) as string | undefined;
-    const branchId = user.role === 'ADMIN' ? (targetBranchId || user.branchId) : user.branchId;
+    let branchId = user.role === 'ADMIN' ? (targetBranchId || user.branchId) : user.branchId;
+
+    if (!branchId && user.role === 'ADMIN') {
+      const firstBranch = await prisma.branch.findFirst({
+        where: { isActive: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (firstBranch) {
+        branchId = firstBranch.id;
+      }
+    }
 
     if (!branchId) {
-      res.status(400).json({ error: 'Branch ID is required.' });
+      res.status(400).json({ error: 'Branch ID is required. Please create or select a branch.' });
       return;
     }
 

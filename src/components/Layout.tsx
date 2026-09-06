@@ -56,15 +56,15 @@ export function Layout() {
     { name: 'User Credentials', path: '/admin/users', icon: Users },
     { name: 'Vehicles', path: '/vehicles', icon: Car },
     { name: 'Active Rentals', path: '/rentals', icon: FileText },
-    { name: 'Maintenance', path: '/maintenance', icon: Wrench },
     { name: 'Completed Rentals', path: '/completed', icon: CheckCircle },
+    { name: 'Maintenance', path: '/maintenance', icon: Wrench },
     { name: 'Reports', path: '/reports', icon: FileText },
     { name: 'Settings', path: '/settings', icon: Settings },
   ] : [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { name: 'Analytics', path: '/analytics', icon: BarChart3 },
     { name: 'Vehicles', path: '/vehicles', icon: Car },
     { name: 'Active Rentals', path: '/rentals', icon: FileText },
+    { name: 'Completed Rentals', path: '/completed', icon: CheckCircle },
     { name: 'Maintenance', path: '/maintenance', icon: Wrench },
   ];
 

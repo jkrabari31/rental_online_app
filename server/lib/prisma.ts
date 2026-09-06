@@ -7,6 +7,9 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
 function createPrismaClient() {
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  pool.on('error', (err) => {
+    console.error('Unexpected error on idle Prisma PostgreSQL client:', err);
+  });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({ adapter });
 }

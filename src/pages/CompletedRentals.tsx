@@ -7,8 +7,10 @@ import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { FileSpreadsheet, FileDown, Search, Printer } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function CompletedRentals() {
+  const { isAdmin } = useAuth();
   const [rentals, setRentals] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<any>(null);
@@ -64,22 +66,29 @@ export function CompletedRentals() {
       return;
     }
 
-    const data = filteredRentals.map(r => ({
-      'Rental ID': `RNT-${r.id}`,
-      'Branch': r.branch?.name || '',
-      'Customer Name': r.customer.name,
-      'Customer Mobile': r.customer.mobileNumber,
-      'Vehicle': `${r.vehicle.vehicleName} (${r.vehicle.vehicleNumber})`,
-      'Package': r.selectedPackage || 'HOURLY',
-      'Pickup Date': format(new Date(r.pickupDate), 'PPp'),
-      'Return Date': r.returnDate ? format(new Date(r.returnDate), 'PPp') : 'N/A',
-      'Total Hours': (() => { const m = Math.round((r.totalHours || 0) * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })(),
-      'Base Rent': (Number(r.totalAmount || 0) - Number(r.settlementAmount || 0)),
-      'Settlement': r.settlementAmount || 0,
-      'Net Amount': r.totalAmount || 0,
-      'Deposit': r.depositAmount || 0,
-      'Payment Mode': r.paymentMode || 'CASH',
-    }));
+    const data = filteredRentals.map(r => {
+      const row: Record<string, any> = {
+        'Rental ID': `RNT-${r.id}`,
+        'Branch': r.branch?.name || '',
+        'Customer Name': r.customer.name,
+        'Customer Mobile': r.customer.mobileNumber,
+        'Vehicle': `${r.vehicle.vehicleName} (${r.vehicle.vehicleNumber})`,
+        'Package': r.selectedPackage || 'HOURLY',
+        'Pickup Date': format(new Date(r.pickupDate), 'PPp'),
+        'Return Date': r.returnDate ? format(new Date(r.returnDate), 'PPp') : 'N/A',
+        'Total Hours': (() => { const m = Math.round((r.totalHours || 0) * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })(),
+      };
+
+      if (isAdmin) {
+        row['Base Rent'] = (Number(r.totalAmount || 0) - Number(r.settlementAmount || 0));
+        row['Settlement'] = r.settlementAmount || 0;
+        row['Net Amount'] = r.totalAmount || 0;
+        row['Deposit'] = r.depositAmount || 0;
+      }
+
+      row['Payment Mode'] = r.paymentMode || 'CASH';
+      return row;
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
@@ -184,7 +193,7 @@ export function CompletedRentals() {
               <TableHead>Return</TableHead>
               <TableHead>Hours</TableHead>
               <TableHead>Package</TableHead>
-              <TableHead>Amount</TableHead>
+              {isAdmin && <TableHead>Amount</TableHead>}
               <TableHead>Payment</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -205,15 +214,17 @@ export function CompletedRentals() {
                 <TableCell className="text-sm">{r.returnDate ? format(new Date(r.returnDate), 'MMM d, h:mm a') : '—'}</TableCell>
                 <TableCell>{(() => { const m = Math.round((r.totalHours || 0) * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })()}</TableCell>
                 <TableCell><span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-xs font-semibold">{r.selectedPackage || 'HOURLY'}</span></TableCell>
-                <TableCell>
-                  <div className="font-semibold text-emerald-600 dark:text-emerald-400">{currencySymbol}{Number(r.totalAmount || 0).toFixed(2)}</div>
-                  {Number(r.settlementAmount) !== 0 && (
-                    <div className="text-[10px] text-muted-foreground whitespace-nowrap">Includes {Number(r.settlementAmount) < 0 ? '-' : '+'}{currencySymbol}{Math.abs(Number(r.settlementAmount)).toFixed(2)} stl.</div>
-                  )}
-                  {Number(r.depositAmount) > 0 && (
-                    <div className="text-[10px] text-amber-600 dark:text-amber-500 whitespace-nowrap">Deposit: {currencySymbol}{r.depositAmount}</div>
-                  )}
-                </TableCell>
+                {isAdmin && (
+                  <TableCell>
+                    <div className="font-semibold text-emerald-600 dark:text-emerald-400">{currencySymbol}{Number(r.totalAmount || 0).toFixed(2)}</div>
+                    {Number(r.settlementAmount) !== 0 && (
+                      <div className="text-[10px] text-muted-foreground whitespace-nowrap">Includes {Number(r.settlementAmount) < 0 ? '-' : '+'}{currencySymbol}{Math.abs(Number(r.settlementAmount)).toFixed(2)} stl.</div>
+                    )}
+                    {Number(r.depositAmount) > 0 && (
+                      <div className="text-[10px] text-amber-600 dark:text-amber-500 whitespace-nowrap">Deposit: {currencySymbol}{r.depositAmount}</div>
+                    )}
+                  </TableCell>
+                )}
                 <TableCell>
                   <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${
                     (r.paymentMode || 'CASH') === 'ONLINE'
@@ -232,7 +243,7 @@ export function CompletedRentals() {
             ))}
             {filteredRentals.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-muted-foreground">
                   No completed rentals found for the selected date range.
                 </TableCell>
               </TableRow>

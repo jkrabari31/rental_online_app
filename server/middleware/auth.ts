@@ -44,8 +44,12 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 export function getBranchScope(req: Request): string | undefined {
   const user = req.session.user!;
   if (user.role === 'ADMIN') {
-    // Admin can optionally filter by branch
-    return (req.query.branchId as string) || undefined;
+    // Admin can optionally filter by branch (ignore 'ALL', 'undefined', 'null')
+    const qBranch = req.query.branchId as string;
+    if (!qBranch || qBranch === 'ALL' || qBranch === 'undefined' || qBranch === 'null') {
+      return undefined;
+    }
+    return qBranch;
   }
   // Branch users are always scoped to their branch
   return user.branchId;

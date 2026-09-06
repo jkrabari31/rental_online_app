@@ -51,16 +51,6 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 // POST /api/rentals — Create rental
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
-    const user = req.session.user!;
-    const branchId = user.role === 'ADMIN'
-      ? (req.body.branchId || req.query.branchId || user.branchId)
-      : user.branchId;
-
-    if (!branchId) {
-      res.status(400).json({ error: 'Branch ID is required.' });
-      return;
-    }
-
     const { customerData, ...rentalData } = req.body;
 
     if (!rentalData.vehicleId) {
@@ -76,6 +66,20 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     }
     if (targetVehicle.status === 'RENTED') {
       res.status(400).json({ error: 'This vehicle is currently already on rent.' });
+      return;
+    }
+
+    const user = req.session.user!;
+    let branchId = user.role === 'ADMIN'
+      ? (req.body.branchId || req.query.branchId || user.branchId || targetVehicle.branchId)
+      : (user.branchId || targetVehicle.branchId);
+
+    if (!branchId) {
+      branchId = targetVehicle.branchId;
+    }
+
+    if (!branchId) {
+      res.status(400).json({ error: 'Branch ID is required.' });
       return;
     }
 
@@ -187,6 +191,10 @@ router.post('/:id/swap', requireAuth, async (req: Request, res: Response) => {
   try {
     const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const rentalId = parseInt(paramId, 10);
+    if (isNaN(rentalId)) {
+      res.status(400).json({ error: 'Invalid rental ID.' });
+      return;
+    }
     const { oldVehicleId, newVehicleId, oldVehicleStatus, notesAppend } = req.body;
 
     const rental = await prisma.rental.findUnique({ where: { id: rentalId } });
@@ -224,6 +232,10 @@ router.patch('/:id/accident', requireAuth, async (req: Request, res: Response) =
   try {
     const paramId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const rentalId = parseInt(paramId, 10);
+    if (isNaN(rentalId)) {
+      res.status(400).json({ error: 'Invalid rental ID.' });
+      return;
+    }
     const { isAccident } = req.body;
 
     const rental = await prisma.rental.update({
