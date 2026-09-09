@@ -37,6 +37,7 @@ export function ActiveRentals() {
     pickupDate: new Date(),
     selectedPackage: 'HOURLY',
     depositAmount: 0,
+    depositPaymentMode: 'CASH' as 'CASH' | 'ONLINE',
     notes: ''
   });
 
@@ -60,12 +61,11 @@ export function ActiveRentals() {
     loadSettings();
   }, []);
 
-  // Auto-sync settlementAmount with the live calculated total whenever
-  // the return dialog is open, the return time changes, or settings load.
+  // Auto-sync settlementAmount with the balance due (gross rent minus advance deposit)
   useEffect(() => {
     if (!isReturnOpen || !selectedRental) return;
     const details = calculateReturnAmount();
-    setReturnFormData(prev => ({ ...prev, settlementAmount: parseFloat(details.totalAmount) || 0 }));
+    setReturnFormData(prev => ({ ...prev, settlementAmount: parseFloat(details.balanceDue) || 0 }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReturnOpen, returnFormData.returnDate, settings]);
 
@@ -179,6 +179,7 @@ export function ActiveRentals() {
       pickupDate: new Date(),
       selectedPackage: 'HOURLY',
       depositAmount: settings?.defaultDepositAmount || 0,
+      depositPaymentMode: 'CASH',
       notes: ''
     });
     setVehicleSearch('');
@@ -208,6 +209,8 @@ export function ActiveRentals() {
         pickupDate: formData.pickupDate,
         selectedPackage: formData.selectedPackage,
         depositAmount: formData.depositAmount,
+        depositPaymentMode: formData.depositPaymentMode,
+        paymentMode: formData.depositPaymentMode,
         notes: formData.notes
       });
       setIsNewRentalOpen(false);
@@ -223,7 +226,7 @@ export function ActiveRentals() {
     setReturnFormData({
       returnDate: new Date(),
       settlementAmount: 0, // will be auto-updated by the useEffect above
-      paymentMode: 'CASH',
+      paymentMode: (rental.paymentMode || rental.depositPaymentMode || 'CASH') as 'CASH' | 'ONLINE',
       notes: rental.notes || ''
     });
     // Re-fetch settings every time dialog opens to ensure latest rounding rule
@@ -262,6 +265,11 @@ export function ActiveRentals() {
         chargeableDurationText: '0 mins',
         extraDurationText: '',
         totalAmount: '0.00',
+        grossTotal: '0.00',
+        depositPaid: '0.00',
+        balanceDue: '0.00',
+        refundDue: '0.00',
+        netDifference: '0.00',
         baseAmount: '0.00',
         extraCharge: '0.00',
         isPackage: false,
@@ -281,6 +289,11 @@ export function ActiveRentals() {
         chargeableDurationText: '0 mins',
         extraDurationText: '',
         totalAmount: '0.00',
+        grossTotal: '0.00',
+        depositPaid: '0.00',
+        balanceDue: '0.00',
+        refundDue: '0.00',
+        netDifference: '0.00',
         baseAmount: '0.00',
         extraCharge: '0.00',
         isPackage: false,
@@ -393,7 +406,11 @@ export function ActiveRentals() {
       chargeableHours = 1 + extraHours;
     }
 
-    const totalAmount = Math.max(0, baseAmount + extraCharge);
+    const grossTotal = Math.max(0, baseAmount + extraCharge);
+    const depositPaid = Number(selectedRental?.depositAmount) || 0;
+    const balanceDue = Math.max(0, grossTotal - depositPaid);
+    const refundDue = Math.max(0, depositPaid - grossTotal);
+    const netDifference = grossTotal - depositPaid;
 
     // Formatted chargeable duration in 60-minute standard format
     const chargeableTotalMins = Math.round(chargeableHours * 60);
@@ -427,7 +444,12 @@ export function ActiveRentals() {
       chargeableDurationHHMM,
       chargeableDurationText,
       extraDurationText,
-      totalAmount: totalAmount.toFixed(2),
+      totalAmount: grossTotal.toFixed(2),
+      grossTotal: grossTotal.toFixed(2),
+      depositPaid: depositPaid.toFixed(2),
+      balanceDue: balanceDue.toFixed(2),
+      refundDue: refundDue.toFixed(2),
+      netDifference: netDifference.toFixed(2),
       baseAmount: baseAmount.toFixed(2),
       extraCharge: extraCharge.toFixed(2),
       isPackage: pkgHours > 0,
@@ -440,14 +462,17 @@ export function ActiveRentals() {
     if (!selectedRental) return;
 
     const returnDetails = calculateReturnAmount();
+    const finalSettlement = Number(returnFormData.settlementAmount) || 0;
+    const finalTotalAmount = Number(selectedRental.depositAmount || 0) + finalSettlement;
+
     try {
       await api.post(`/rentals/${selectedRental.id}/return`, {
         vehicleId: selectedRental.vehicleId,
         returnData: {
           returnDate: returnFormData.returnDate,
           totalHours: Number(returnDetails.chargeableHours),
-          totalAmount: Number(returnDetails.totalAmount),
-          settlementAmount: Number(returnFormData.settlementAmount) || 0,
+          totalAmount: finalTotalAmount,
+          settlementAmount: finalSettlement,
           paymentMode: returnFormData.paymentMode,
           notes: returnFormData.notes
         }
@@ -612,9 +637,12 @@ export function ActiveRentals() {
                     <span className="font-medium text-emerald-600 dark:text-emerald-400">{currencySymbol}{r.vehicle.hourlyRate}/hr</span>
                   </div>
                   {r.depositAmount > 0 && (
-                    <div className="flex items-center text-xs">
-                      <span className="text-muted-foreground mr-1">Deposit:</span>
-                      <span className="font-medium text-amber-600 dark:text-amber-500">{currencySymbol}{r.depositAmount}</span>
+                    <div className="flex items-center text-xs gap-1.5">
+                      <span className="text-muted-foreground">Deposit:</span>
+                      <span className="font-semibold text-amber-600 dark:text-amber-500">{currencySymbol}{r.depositAmount}</span>
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${r.depositPaymentMode === 'ONLINE' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800' : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'}`}>
+                        {r.depositPaymentMode === 'ONLINE' ? '📱 UPI' : '💵 Cash'}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -854,6 +882,22 @@ export function ActiveRentals() {
                 </div>
 
                 <div className="space-y-1">
+                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Deposit Payment Mode</Label>
+                  <Select 
+                    value={formData.depositPaymentMode} 
+                    onValueChange={(v: string | null) => setFormData({...formData, depositPaymentMode: (v || 'CASH') as 'CASH' | 'ONLINE'})}
+                  >
+                    <SelectTrigger className="font-semibold">
+                      <SelectValue placeholder="Select Payment Mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CASH">💵 Cash</SelectItem>
+                      <SelectItem value="ONLINE">📱 Online / UPI</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
                   <Label className="text-slate-600 dark:text-slate-400 font-medium">Notes / Accessories</Label>
                   <Input 
                     value={formData.notes} 
@@ -957,34 +1001,69 @@ export function ActiveRentals() {
                   </div>
                 )}
 
+                <div className="flex justify-between text-sm font-semibold pt-1 border-t border-slate-200 dark:border-slate-800">
+                  <span className="text-slate-700 dark:text-slate-300">Total Rental Charge:</span>
+                  <span className="text-slate-900 dark:text-slate-100 font-bold">{currencySymbol}{returnDetails.grossTotal}</span>
+                </div>
+
                 {selectedRental.depositAmount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
-                    <span>Advance Deposit Paid:</span>
+                  <div className="flex justify-between items-center text-sm text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1.5">
+                      Advance Deposit Paid:
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${selectedRental.depositPaymentMode === 'ONLINE' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-800' : 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-300 dark:border-emerald-800'}`}>
+                        {selectedRental.depositPaymentMode === 'ONLINE' ? '📱 Online / UPI' : '💵 Cash'}
+                      </span>
+                    </span>
                     <span className="font-semibold">-{currencySymbol}{selectedRental.depositAmount}</span>
                   </div>
                 )}
 
-                <div className="border-t border-blue-200 dark:border-blue-800 pt-2 flex justify-between items-center">
-                  <span className="font-bold text-base text-slate-900 dark:text-slate-100">Calculated Net Total:</span>
-                  <span className="text-2xl font-extrabold text-blue-600 dark:text-blue-400">{currencySymbol}{returnDetails.totalAmount}</span>
+                <div className="border-t-2 border-blue-300 dark:border-blue-700 pt-2.5 flex justify-between items-center">
+                  <div>
+                    <span className="font-bold text-base text-slate-900 dark:text-slate-100 block">
+                      {Number(returnDetails.netDifference) >= 0 ? 'Balance to Collect Now:' : 'Refund Due to Customer:'}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Total ({currencySymbol}{returnDetails.grossTotal}) − Advance ({currencySymbol}{returnDetails.depositPaid})
+                    </span>
+                  </div>
+                  <span className={`text-2xl font-black ${Number(returnDetails.netDifference) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {currencySymbol}{Math.abs(Number(returnDetails.netDifference)).toFixed(2)}
+                  </span>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <Label className="font-medium">Final Settlement Amount Received ({currencySymbol})</Label>
+                <div className="flex justify-between items-center">
+                  <Label className="font-medium">
+                    {Number(returnDetails.netDifference) >= 0 ? 'Balance Amount to Collect (₹)' : 'Refund Amount to Return (₹)'}
+                  </Label>
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+                    Auto-calculated ({currencySymbol}{returnDetails.balanceDue})
+                  </span>
+                </div>
                 <Input 
                   type="number" 
                   value={returnFormData.settlementAmount} 
                   onChange={e => setReturnFormData({...returnFormData, settlementAmount: parseFloat(e.target.value) || 0})}
-                  placeholder="Amount received from customer"
-                  className="h-11 text-lg font-bold text-emerald-600"
+                  placeholder="Amount to collect from customer"
+                  className="h-11 text-lg font-bold text-emerald-600 dark:text-emerald-400"
                 />
-                <p className="text-xs text-muted-foreground">Auto-filled from calculation. Adjust only if giving a discount or extra charge.</p>
+                <p className="text-xs text-muted-foreground">
+                  Exact balance due after deducting advance. Adjust only if applying a manual discount or extra fee.
+                </p>
               </div>
 
-              {/* Payment Mode */}
+              {/* Settlement Balance Payment Mode */}
               <div className="space-y-2">
-                <Label className="font-medium">Payment Mode</Label>
+                <div className="flex justify-between items-center">
+                  <Label className="font-medium">Balance Settlement Payment Mode</Label>
+                  {selectedRental.depositAmount > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      Advance was: <strong className="text-slate-700 dark:text-slate-300">{selectedRental.depositPaymentMode === 'ONLINE' ? '📱 Online/UPI' : '💵 Cash'}</strong>
+                    </span>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"

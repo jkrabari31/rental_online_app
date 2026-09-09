@@ -84,9 +84,11 @@ export function CompletedRentals() {
         row['Settlement'] = r.settlementAmount || 0;
         row['Net Amount'] = r.totalAmount || 0;
         row['Deposit'] = r.depositAmount || 0;
+        row['Deposit Mode'] = r.depositPaymentMode || 'CASH';
       }
 
-      row['Payment Mode'] = r.paymentMode || 'CASH';
+      row['Balance Mode'] = r.paymentMode || 'CASH';
+      row['Split Payment'] = (r.depositAmount > 0 && r.depositPaymentMode !== r.paymentMode) ? 'YES' : 'NO';
       return row;
     });
 
@@ -124,10 +126,10 @@ export function CompletedRentals() {
           <tr><td style="padding: 6px 0; color: #666;">Return</td><td style="padding: 6px 0; text-align: right;">${rental.returnDate ? format(new Date(rental.returnDate), 'PPp') : 'N/A'}</td></tr>
           <tr style="border-top: 1px solid #eee;"><td style="padding: 6px 0; color: #666;">Total Hours</td><td style="padding: 6px 0; text-align: right;">${(() => { const m = Math.round((rental.totalHours || 0) * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })()} (HH:MM)</td></tr>
           <tr><td style="padding: 6px 0; color: #666;">Package</td><td style="padding: 6px 0; text-align: right;">${rental.selectedPackage || 'HOURLY'}</td></tr>
-          <tr><td style="padding: 6px 0; color: #666;">Deposit</td><td style="padding: 6px 0; text-align: right;">${currencySymbol}${rental.depositAmount || 0}</td></tr>
+          <tr><td style="padding: 6px 0; color: #666;">Deposit Paid</td><td style="padding: 6px 0; text-align: right;">${currencySymbol}${rental.depositAmount || 0} ${rental.depositAmount > 0 ? `(${rental.depositPaymentMode === 'ONLINE' ? 'Online/UPI' : 'Cash'})` : ''}</td></tr>
           <tr style="border-top: 1px solid #eee;"><td style="padding: 6px 0; color: #666;">Base Rent & Overtime</td><td style="padding: 6px 0; text-align: right;">${currencySymbol}${(Number(rental.totalAmount || 0) - Number(rental.settlementAmount || 0)).toFixed(2)}</td></tr>
           <tr><td style="padding: 6px 0; color: #666;">Settlement Adjustments</td><td style="padding: 6px 0; text-align: right;">${Number(rental.settlementAmount) < 0 ? '-' : ''}${currencySymbol}${Math.abs(Number(rental.settlementAmount || 0)).toFixed(2)}</td></tr>
-          <tr style="border-top: 1px solid #eee;"><td style="padding: 6px 0; color: #666;">Payment Mode</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: ${(rental.paymentMode || 'CASH') === 'ONLINE' ? '#2563eb' : '#059669'}">${rental.paymentMode === 'ONLINE' ? '📱 Online / UPI' : '💵 Cash'}</td></tr>
+          <tr style="border-top: 1px solid #eee;"><td style="padding: 6px 0; color: #666;">Balance Mode</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: ${(rental.paymentMode || 'CASH') === 'ONLINE' ? '#2563eb' : '#059669'}">${rental.paymentMode === 'ONLINE' ? '📱 Online / UPI' : '💵 Cash'}</td></tr>
         </table>
         <div style="border-top: 2px solid #333; margin-top: 15px; padding-top: 15px; text-align: center;">
           <div style="font-size: 22px; font-weight: 700;">Total: ${currencySymbol}${Number(rental.totalAmount || 0).toFixed(2)}</div>
@@ -226,13 +228,20 @@ export function CompletedRentals() {
                   </TableCell>
                 )}
                 <TableCell>
-                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${
-                    (r.paymentMode || 'CASH') === 'ONLINE'
-                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300'
-                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
-                  }`}>
-                    {(r.paymentMode || 'CASH') === 'ONLINE' ? '📱 Online' : '💵 Cash'}
-                  </span>
+                  <div className="flex flex-col gap-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap inline-flex items-center w-fit ${
+                      (r.paymentMode || 'CASH') === 'ONLINE'
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300'
+                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+                    }`}>
+                      {(r.paymentMode || 'CASH') === 'ONLINE' ? '📱 Online' : '💵 Cash'}
+                    </span>
+                    {r.depositAmount > 0 && r.depositPaymentMode && r.depositPaymentMode !== r.paymentMode && (
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        Dep: {r.depositPaymentMode === 'ONLINE' ? '📱 Online' : '💵 Cash'}
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="sm" onClick={() => printReceipt(r)}>

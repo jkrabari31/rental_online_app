@@ -36,7 +36,8 @@ import {
   PieChart as PieIcon, 
   Activity,
   CheckCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Search
 } from 'lucide-react';
 import { format, subDays, startOfMonth, startOfYear, endOfMonth } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -112,6 +113,28 @@ export function Analysis() {
   const topVehicles = data?.topVehicles || [];
   const branches = data?.branches || [];
 
+  const [vehicleTableSearch, setVehicleTableSearch] = useState('');
+
+  const filteredVehiclesList = useMemo(() => {
+    if (!vehicleTableSearch.trim()) return topVehicles;
+    const q = vehicleTableSearch.toLowerCase();
+    return topVehicles.filter((v: any) => 
+      (v.name || '').toLowerCase().includes(q) ||
+      (v.number || '').toLowerCase().includes(q) ||
+      (v.branchName || '').toLowerCase().includes(q)
+    );
+  }, [topVehicles, vehicleTableSearch]);
+
+  const vehicleTotals = useMemo(() => {
+    return filteredVehiclesList.reduce((acc: any, v: any) => {
+      acc.trips += Number(v.trips) || 0;
+      acc.revenue += Number(v.revenue) || 0;
+      acc.expenses += Number(v.expenses) || 0;
+      acc.netProfit += Number(v.netProfit) || 0;
+      return acc;
+    }, { trips: 0, revenue: 0, expenses: 0, netProfit: 0 });
+  }, [filteredVehiclesList]);
+
   // Export Analytics Summary to Excel
   const handleExportAnalytics = () => {
     if (!data) return;
@@ -140,19 +163,21 @@ export function Analysis() {
       'Fleet Count': b.vehiclesCount,
     }));
 
-    const topVehiclesSheetData = topVehicles.map((v: any, index: number) => ({
-      'Rank': index + 1,
+    const vehicleSheetData = topVehicles.map((v: any, index: number) => ({
+      '#': index + 1,
       'Vehicle Name': v.name,
       'Registration Number': v.number,
-      'Branch': v.branchName,
+      'Branch': v.branchName || 'Main Branch',
+      'Completed Trips': v.trips,
       'Revenue Generated': v.revenue,
-      'Total Trips': v.trips,
+      'Maintenance Expenses': v.expenses || 0,
+      'Net Profit': v.netProfit || 0,
     }));
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summarySheetData), 'KPI Summary');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(branchSheetData), 'Branch Performance');
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(topVehiclesSheetData), 'Top Vehicles');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(vehicleSheetData), 'Fleet Performance');
 
     XLSX.writeFile(workbook, `SB_Rental_Analytics_${startDate}_to_${endDate}.xlsx`);
   };
@@ -549,59 +574,103 @@ export function Analysis() {
       {/* 4. CHARTS SECTION 3: TOP VEHICLES & MAINTENANCE CATEGORIES */}
       {/* ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Performing Vehicles Table */}
-        <Card className="lg:col-span-2 shadow-sm border-slate-200/80 dark:border-slate-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-bold">Top Performing Vehicles</CardTitle>
-            <CardDescription>Highest revenue generating vehicles during selected period</CardDescription>
+        {/* All Fleet Vehicles Performance & Profitability Table */}
+        <Card className="lg:col-span-2 shadow-sm border-slate-200/80 dark:border-slate-800 flex flex-col">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                  <Car className="w-5 h-5 text-blue-500" />
+                  Fleet Vehicle Performance & Profitability
+                </CardTitle>
+                <CardDescription>
+                  All fleet vehicles across branches with completed trips, revenue, maintenance expenses & profit
+                </CardDescription>
+              </div>
+              <div className="relative w-full sm:w-56">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search vehicle or branch..."
+                  value={vehicleTableSearch}
+                  onChange={(e) => setVehicleTableSearch(e.target.value)}
+                  className="pl-8 h-9 text-xs"
+                />
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="pt-2">
-            {topVehicles.length > 0 ? (
-              <div className="overflow-x-auto">
+          <CardContent className="pt-0 p-0 flex-1 flex flex-col">
+            {filteredVehiclesList.length > 0 ? (
+              <div className="overflow-x-auto max-h-[440px] overflow-y-auto">
                 <table className="w-full text-left text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b text-xs text-muted-foreground uppercase tracking-wider">
-                      <th className="py-3 px-2 font-semibold">Rank</th>
-                      <th className="py-3 px-2 font-semibold">Vehicle</th>
-                      <th className="py-3 px-2 font-semibold">Branch</th>
-                      <th className="py-3 px-2 font-semibold text-center">Completed Trips</th>
-                      <th className="py-3 px-2 font-semibold text-right">Revenue Generated</th>
+                  <thead className="bg-slate-50 dark:bg-slate-900/80 sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
+                    <tr className="text-xs text-muted-foreground uppercase tracking-wider">
+                      <th className="py-2.5 px-3 font-semibold">#</th>
+                      <th className="py-2.5 px-3 font-semibold">Vehicle</th>
+                      <th className="py-2.5 px-3 font-semibold">Branch</th>
+                      <th className="py-2.5 px-3 font-semibold text-center">Completed Trips</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Revenue</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Expenses</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Net Profit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {topVehicles.map((v: any, index: number) => (
-                      <tr key={index} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-2">
-                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                            index === 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300' :
-                            index === 1 ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200' :
-                            index === 2 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300' :
-                            'text-muted-foreground'
-                          }`}>
-                            {index + 1}
-                          </span>
+                    {filteredVehiclesList.map((v: any, index: number) => (
+                      <tr key={v.id || index} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2.5 px-3 text-xs text-muted-foreground font-mono">
+                          {index + 1}
                         </td>
-                        <td className="py-3 px-2">
-                          <p className="font-bold text-slate-900 dark:text-white">{v.name}</p>
+                        <td className="py-2.5 px-3">
+                          <p className="font-bold text-slate-900 dark:text-white leading-snug">{v.name}</p>
                           <p className="text-xs text-muted-foreground font-mono">{v.number}</p>
                         </td>
-                        <td className="py-3 px-2 text-xs text-slate-600 dark:text-slate-400">
-                          {v.branchName || 'Main Branch'}
+                        <td className="py-2.5 px-3 text-xs text-slate-600 dark:text-slate-400">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {v.branchName || 'Main Branch'}
+                          </span>
                         </td>
-                        <td className="py-3 px-2 text-center font-semibold text-blue-600 dark:text-blue-400">
-                          {v.trips}
+                        <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400">
+                          {v.trips || 0}
                         </td>
-                        <td className="py-3 px-2 text-right font-extrabold text-emerald-600 dark:text-emerald-400">
-                          {currencySymbol}{Number(v.revenue).toLocaleString()}
+                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                          {currencySymbol}{Number(v.revenue || 0).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                          {Number(v.expenses) > 0 ? `${currencySymbol}${Number(v.expenses).toLocaleString()}` : '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-extrabold whitespace-nowrap">
+                          <span className={Number(v.netProfit) < 0 ? 'text-rose-600 dark:text-rose-400' : Number(v.netProfit) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}>
+                            {Number(v.netProfit) < 0 ? '-' : ''}{currencySymbol}{Math.abs(Number(v.netProfit || 0)).toLocaleString()}
+                          </span>
                         </td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot className="bg-slate-50/90 dark:bg-slate-900/90 border-t-2 border-slate-200 dark:border-slate-800 font-bold text-xs sticky bottom-0">
+                    <tr>
+                      <td colSpan={3} className="py-2.5 px-3 text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        Total ({filteredVehiclesList.length} Vehicles)
+                      </td>
+                      <td className="py-2.5 px-3 text-center text-blue-600 dark:text-blue-400">
+                        {vehicleTotals.trips}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        {currencySymbol}{vehicleTotals.revenue.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                        {currencySymbol}{vehicleTotals.expenses.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap font-extrabold">
+                        <span className={vehicleTotals.netProfit < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                          {vehicleTotals.netProfit < 0 ? '-' : ''}{currencySymbol}{Math.abs(vehicleTotals.netProfit).toLocaleString()}
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             ) : (
-              <div className="py-12 text-center text-muted-foreground text-sm border-2 border-dashed rounded-xl">
-                No rental trips recorded for this date period.
+              <div className="py-12 text-center text-muted-foreground text-sm border-2 border-dashed rounded-xl m-4">
+                {vehicleTableSearch ? 'No vehicles match your search filter.' : 'No fleet vehicles found.'}
               </div>
             )}
           </CardContent>

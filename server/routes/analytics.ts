@@ -126,22 +126,58 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
     let onlineCount = 0;
 
     const branchRevMap = new Map<string, { revenue: number; rentalsCount: number }>();
-    const vehicleRevMap = new Map<string, { name: string; number: string; branchName: string; revenue: number; trips: number }>();
+    const vehicleRevMap = new Map<string, { id: string; name: string; number: string; branchName: string; revenue: number; trips: number; expenses: number }>();
     const timelineMap = new Map<string, { revenue: number; maintenance: number; rentalsCount: number; cash: number; online: number }>();
 
-    // Process Completed Rentals
+    // Pre-populate with all fleet vehicles so every vehicle is included
+    vehicles.forEach((v) => {
+      vehicleRevMap.set(v.id, {
+        id: v.id,
+        name: v.vehicleName,
+        number: v.vehicleNumber,
+        branchName: v.branch?.name || 'Main Branch',
+        revenue: 0,
+        trips: 0,
+        expenses: 0,
+      });
+    });
+
+    // Process Completed Rentals with Split Payment Accuracy
     completedRentals.forEach((r) => {
       const amount = Number(r.totalAmount) || 0;
       totalRevenue += amount;
 
-      const pMode = (r.paymentMode || 'CASH').toUpperCase();
-      if (pMode === 'ONLINE') {
-        onlineRevenue += amount;
-        onlineCount++;
-      } else {
-        cashRevenue += amount;
-        cashCount++;
+      const depAmount = Math.min(Number(r.depositAmount) || 0, amount);
+      const remainingAmount = Math.max(0, amount - depAmount);
+
+      const depMode = ((r as any).depositPaymentMode || r.paymentMode || 'CASH').toUpperCase();
+      const finalMode = (r.paymentMode || 'CASH').toUpperCase();
+
+      let rentalCash = 0;
+      let rentalOnline = 0;
+
+      // Advance deposit portion
+      if (depAmount > 0) {
+        if (depMode === 'ONLINE') rentalOnline += depAmount;
+        else rentalCash += depAmount;
       }
+
+      // Final settlement / extra hours portion
+      if (remainingAmount > 0) {
+        if (finalMode === 'ONLINE') rentalOnline += remainingAmount;
+        else rentalCash += remainingAmount;
+      }
+
+      if (amount === 0) {
+        if (finalMode === 'ONLINE') onlineCount++;
+        else cashCount++;
+      } else {
+        if (rentalOnline > 0) onlineCount++;
+        if (rentalCash > 0) cashCount++;
+      }
+
+      cashRevenue += rentalCash;
+      onlineRevenue += rentalOnline;
 
       // Branch Map
       const bName = r.branch?.name || (branches.length > 0 ? branches[0].name : 'Main Branch');
@@ -152,16 +188,21 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
 
       // Vehicle Map
       const vKey = r.vehicleId;
-      const vData = vehicleRevMap.get(vKey) || {
-        name: r.vehicle?.vehicleName || 'Vehicle',
-        number: r.vehicle?.vehicleNumber || 'N/A',
-        branchName: r.branch?.name || 'Main Branch',
-        revenue: 0,
-        trips: 0,
-      };
+      let vData = vehicleRevMap.get(vKey);
+      if (!vData) {
+        vData = {
+          id: vKey,
+          name: r.vehicle?.vehicleName || 'Vehicle',
+          number: r.vehicle?.vehicleNumber || 'N/A',
+          branchName: r.branch?.name || 'Main Branch',
+          revenue: 0,
+          trips: 0,
+          expenses: 0,
+        };
+        vehicleRevMap.set(vKey, vData);
+      }
       vData.revenue += amount;
       vData.trips++;
-      vehicleRevMap.set(vKey, vData);
 
       // Timeline Map (by day)
       const targetDate = r.returnDate || r.pickupDate || r.createdAt;
@@ -172,8 +213,8 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
           const dayData = timelineMap.get(dayStr) || { revenue: 0, maintenance: 0, rentalsCount: 0, cash: 0, online: 0 };
           dayData.revenue += amount;
           dayData.rentalsCount++;
-          if (pMode === 'ONLINE') dayData.online += amount;
-          else dayData.cash += amount;
+          dayData.online += rentalOnline;
+          dayData.cash += rentalCash;
           timelineMap.set(dayStr, dayData);
         }
       }
@@ -198,6 +239,24 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
       catData.amount += cost;
       catData.count++;
       maintCategoryMap.set(cat, catData);
+
+      // Vehicle Maintenance Expense
+      if (m.vehicleId) {
+        let vData = vehicleRevMap.get(m.vehicleId);
+        if (!vData) {
+          vData = {
+            id: m.vehicleId,
+            name: m.vehicle?.vehicleName || 'Vehicle',
+            number: m.vehicle?.vehicleNumber || 'N/A',
+            branchName: m.branch?.name || 'Main Branch',
+            revenue: 0,
+            trips: 0,
+            expenses: 0,
+          };
+          vehicleRevMap.set(m.vehicleId, vData);
+        }
+        vData.expenses += cost;
+      }
 
       // Timeline Map
       const targetDate = m.date || m.createdAt;
@@ -331,14 +390,15 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
       })
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Top Performing Vehicles (Top 8 by Revenue)
-    const topVehicles = Array.from(vehicleRevMap.values())
+    // All Fleet Vehicles Performance & Maintenance Analytics (All vehicles across branches)
+    const allVehiclesAnalytics = Array.from(vehicleRevMap.values())
       .map((v) => ({
         ...v,
         revenue: Math.round(v.revenue),
+        expenses: Math.round(v.expenses),
+        netProfit: Math.round(v.revenue - v.expenses),
       }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 8);
+      .sort((a, b) => b.revenue - a.revenue || b.trips - a.trips || a.name.localeCompare(b.name));
 
     res.json({
       kpis: {
@@ -363,7 +423,8 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
       fleetDistribution,
       maintenanceByCategory,
       timeline,
-      topVehicles,
+      topVehicles: allVehiclesAnalytics,
+      allVehicles: allVehiclesAnalytics,
       filters: {
         branchId: requestedBranchId || 'ALL',
         startDate: start.toISOString(),

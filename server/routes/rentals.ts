@@ -104,6 +104,8 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       });
     }
 
+    const depositPaymentMode = (rentalData.depositPaymentMode === 'ONLINE' ? 'ONLINE' : 'CASH');
+
     const [rental] = await prisma.$transaction([
       prisma.rental.create({
         data: {
@@ -112,6 +114,8 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
           branchId,
           pickupDate: new Date(rentalData.pickupDate),
           depositAmount: Number(rentalData.depositAmount) || 0,
+          depositPaymentMode,
+          paymentMode: depositPaymentMode,
           selectedPackage: rentalData.selectedPackage || 'HOURLY',
           notes: rentalData.notes || null,
         },

@@ -146,7 +146,25 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
     if (rate12hr !== undefined) dataToUpdate.rate12hr = rate12hr !== null && rate12hr !== '' ? Number(rate12hr) : null;
     if (rate24hr !== undefined) dataToUpdate.rate24hr = rate24hr !== null && rate24hr !== '' ? Number(rate24hr) : null;
     if (description !== undefined) dataToUpdate.description = description ? String(description).trim() : null;
-    if (user.role === 'ADMIN' && branchId) dataToUpdate.branchId = branchId;
+
+    // Handle branch transfer (Admin or branch staff transferring their vehicle)
+    if (branchId && branchId !== existing.branchId) {
+      const activeRental = await prisma.rental.findFirst({
+        where: { vehicleId: id, status: 'ACTIVE' },
+      });
+      if (activeRental) {
+        res.status(400).json({ error: 'Cannot transfer vehicle while on active rental. Please complete the return first.' });
+        return;
+      }
+
+      const destBranch = await prisma.branch.findUnique({ where: { id: branchId } });
+      if (!destBranch || !destBranch.isActive) {
+        res.status(400).json({ error: 'Destination branch is invalid or inactive.' });
+        return;
+      }
+
+      dataToUpdate.branchId = branchId;
+    }
 
     if (status !== undefined) {
       if (status === 'AVAILABLE') {

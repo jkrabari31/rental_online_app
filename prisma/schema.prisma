@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Branch {
@@ -94,16 +93,17 @@ model Rental {
   vehicle          Vehicle   @relation(fields: [vehicleId], references: [id])
   pickupDate       DateTime
   returnDate       DateTime?
-  depositAmount    Float
-  selectedPackage  String    @default("HOURLY") // HOURLY, 1HR, 3HR, 6HR, 12HR, 24HR
-  notes            String?
-  status           String    @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
-  totalHours       Float?
-  totalAmount      Float?
-  settlementAmount Float?    @default(0)
-  paymentMode      String    @default("CASH") // CASH, ONLINE
-  isAccident       Boolean   @default(false)
-  createdAt        DateTime  @default(now())
+  depositAmount      Float
+  depositPaymentMode String    @default("CASH") // CASH, ONLINE
+  selectedPackage    String    @default("HOURLY") // HOURLY, 1HR, 3HR, 6HR, 12HR, 24HR
+  notes              String?
+  status             String    @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  totalHours         Float?
+  totalAmount        Float?
+  settlementAmount   Float?    @default(0)
+  paymentMode        String    @default("CASH") // CASH, ONLINE (final balance payment mode)
+  isAccident         Boolean   @default(false)
+  createdAt          DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   @@index([status])
@@ -139,4 +139,13 @@ model Setting {
   companyContact       String   @default("")
   receiptFooterText    String   @default("Thank you for your business!")
   updatedAt            DateTime @updatedAt
+}
+
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("session")
 }

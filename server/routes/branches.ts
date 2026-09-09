@@ -1,14 +1,18 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireAdmin, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/branches
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
+// GET /api/branches (all logged-in users can list branches for transfer/dropdowns)
+router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
+    const user = req.session.user;
+    const where = user?.role === 'ADMIN' ? {} : { isActive: true };
+
     const branches = await prisma.branch.findMany({
-      orderBy: { createdAt: 'desc' },
+      where,
+      orderBy: { name: 'asc' },
       include: {
         _count: {
           select: { vehicles: true, users: true, rentals: true },
