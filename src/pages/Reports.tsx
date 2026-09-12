@@ -33,7 +33,7 @@ export function Reports() {
 
   const loadBranches = async () => {
     try {
-      const b = await api.get<any[]>('/branches');
+      const b = await api.get<any[]>('/branches?slim=true');
       setBranches(b || []);
     } catch (e) {
       console.error('Failed to load branches:', e);

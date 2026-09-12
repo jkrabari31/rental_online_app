@@ -48,13 +48,7 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
 
     const branchFilter = requestedBranchId && requestedBranchId !== 'ALL' ? { branchId: requestedBranchId } : {};
 
-    // 1. Fetch Branches for branch analysis and filter dropdown
-    const branches = await prisma.branch.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' },
-    });
-
-    // 2. Fetch completed rentals
+    // Run all independent DB queries in parallel instead of sequentially
     const dateCondition = isAllTime ? {} : {
       OR: [
         { returnDate: { gte: start, lte: end } },
@@ -63,39 +57,6 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
       ],
     };
 
-    const completedRentals = await prisma.rental.findMany({
-      where: {
-        ...branchFilter,
-        status: 'COMPLETED',
-        ...dateCondition,
-      },
-      include: {
-        branch: { select: { id: true, name: true, location: true } },
-        vehicle: { select: { id: true, vehicleName: true, vehicleNumber: true } },
-      },
-      orderBy: { returnDate: 'asc' },
-    });
-
-    // 3. Fetch active rentals
-    const activeRentals = await prisma.rental.findMany({
-      where: {
-        ...branchFilter,
-        status: 'ACTIVE',
-      },
-      include: {
-        branch: { select: { id: true, name: true } },
-      },
-    });
-
-    // 4. Fetch fleet vehicles
-    const vehicles = await prisma.vehicle.findMany({
-      where: branchFilter,
-      include: {
-        branch: { select: { id: true, name: true } },
-      },
-    });
-
-    // 5. Fetch maintenance expenses
     const maintDateCondition = isAllTime ? {} : {
       date: {
         gte: start,
@@ -103,17 +64,66 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
       },
     };
 
-    const maintenanceExpenses = await prisma.maintenanceExpense.findMany({
-      where: {
-        ...branchFilter,
-        ...maintDateCondition,
-      },
-      include: {
-        branch: { select: { id: true, name: true } },
-        vehicle: { select: { id: true, vehicleName: true, vehicleNumber: true } },
-      },
-      orderBy: { date: 'asc' },
-    });
+    const [branches, completedRentals, activeRentals, vehicles, maintenanceExpenses] = await Promise.all([
+      // 1. Fetch Branches
+      prisma.branch.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+      }),
+
+      // 2. Fetch completed rentals
+      prisma.rental.findMany({
+        where: {
+          ...branchFilter,
+          status: 'COMPLETED',
+          ...dateCondition,
+        },
+        include: {
+          branch: { select: { id: true, name: true, location: true } },
+          vehicle: { select: { id: true, vehicleName: true, vehicleNumber: true } },
+        },
+        orderBy: { returnDate: 'asc' },
+      }),
+
+      // 3. Fetch active rentals (only need count + branchId)
+      prisma.rental.findMany({
+        where: {
+          ...branchFilter,
+          status: 'ACTIVE',
+        },
+        select: {
+          id: true,
+          branchId: true,
+          branch: { select: { id: true, name: true } },
+        },
+      }),
+
+      // 4. Fetch fleet vehicles
+      prisma.vehicle.findMany({
+        where: branchFilter,
+        select: {
+          id: true,
+          vehicleName: true,
+          vehicleNumber: true,
+          status: true,
+          branchId: true,
+          branch: { select: { id: true, name: true } },
+        },
+      }),
+
+      // 5. Fetch maintenance expenses
+      prisma.maintenanceExpense.findMany({
+        where: {
+          ...branchFilter,
+          ...maintDateCondition,
+        },
+        include: {
+          branch: { select: { id: true, name: true } },
+          vehicle: { select: { id: true, vehicleName: true, vehicleNumber: true } },
+        },
+        orderBy: { date: 'asc' },
+      }),
+    ]);
 
     // ==========================================
     // AGGREGATIONS & KPI CALCULATIONS

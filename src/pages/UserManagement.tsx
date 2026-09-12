@@ -31,7 +31,7 @@ export function UserManagement() {
     try {
       const [u, b] = await Promise.all([
         api.get<any[]>('/users'),
-        api.get<any[]>('/branches'),
+        api.get<any[]>('/branches?slim=true'),
       ]);
       setUsers(u || []);
       setBranches(b || []);

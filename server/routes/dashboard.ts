@@ -96,38 +96,50 @@ router.get('/admin', requireAdmin, async (req: Request, res: Response) => {
       prisma.branch.count({ where: { isActive: true } }),
     ]);
 
-    // Per-branch breakdown
+    // Per-branch breakdown — use groupBy to avoid N+1 queries
     const branches = await prisma.branch.findMany({
       where: { isActive: true },
       orderBy: { name: 'asc' },
     });
 
-    const branchStats = await Promise.all(
-      branches.map(async (branch) => {
-        const [vehicles, activeRentals, revenueToday, revenueMonth] = await Promise.all([
-          prisma.vehicle.count({ where: { branchId: branch.id } }),
-          prisma.rental.count({ where: { branchId: branch.id, status: 'ACTIVE' } }),
-          prisma.rental.aggregate({
-            _sum: { totalAmount: true },
-            where: { branchId: branch.id, status: 'COMPLETED', returnDate: { gte: today } },
-          }),
-          prisma.rental.aggregate({
-            _sum: { totalAmount: true },
-            where: { branchId: branch.id, status: 'COMPLETED', returnDate: { gte: startOfMonth } },
-          }),
-        ]);
+    // Batch: group vehicle counts, active rental counts, and revenue by branchId in 4 queries total
+    const [vehiclesByBranch, activeRentalsByBranch, revTodayByBranch, revMonthByBranch] = await Promise.all([
+      prisma.vehicle.groupBy({
+        by: ['branchId'],
+        _count: { id: true },
+      }),
+      prisma.rental.groupBy({
+        by: ['branchId'],
+        _count: { id: true },
+        where: { status: 'ACTIVE' },
+      }),
+      prisma.rental.groupBy({
+        by: ['branchId'],
+        _sum: { totalAmount: true },
+        where: { status: 'COMPLETED', returnDate: { gte: today } },
+      }),
+      prisma.rental.groupBy({
+        by: ['branchId'],
+        _sum: { totalAmount: true },
+        where: { status: 'COMPLETED', returnDate: { gte: startOfMonth } },
+      }),
+    ]);
 
-        return {
-          id: branch.id,
-          name: branch.name,
-          location: branch.location,
-          vehicles,
-          activeRentals,
-          revenueToday: revenueToday._sum.totalAmount || 0,
-          revenueMonth: revenueMonth._sum.totalAmount || 0,
-        };
-      })
-    );
+    // Index results by branchId for O(1) lookup
+    const vehicleCountMap = new Map(vehiclesByBranch.map(v => [v.branchId, v._count.id]));
+    const activeRentalCountMap = new Map(activeRentalsByBranch.map(a => [a.branchId, a._count.id]));
+    const revTodayMap = new Map(revTodayByBranch.map(r => [r.branchId, r._sum.totalAmount || 0]));
+    const revMonthMap = new Map(revMonthByBranch.map(r => [r.branchId, r._sum.totalAmount || 0]));
+
+    const branchStats = branches.map((branch) => ({
+      id: branch.id,
+      name: branch.name,
+      location: branch.location,
+      vehicles: vehicleCountMap.get(branch.id) || 0,
+      activeRentals: activeRentalCountMap.get(branch.id) || 0,
+      revenueToday: revTodayMap.get(branch.id) || 0,
+      revenueMonth: revMonthMap.get(branch.id) || 0,
+    }));
 
     res.json({
       overall: {

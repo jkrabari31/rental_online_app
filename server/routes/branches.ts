@@ -9,15 +9,18 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = req.session.user;
     const where = user?.role === 'ADMIN' ? {} : { isActive: true };
+    const slim = req.query.slim === 'true'; // Skip expensive counts for dropdown-only requests
 
     const branches = await prisma.branch.findMany({
       where,
       orderBy: { name: 'asc' },
-      include: {
-        _count: {
-          select: { vehicles: true, users: true, rentals: true },
+      ...(slim ? {} : {
+        include: {
+          _count: {
+            select: { vehicles: true, users: true, rentals: true },
+          },
         },
-      },
+      }),
     });
     res.json(branches);
   } catch (error: any) {

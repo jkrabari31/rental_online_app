@@ -111,6 +111,9 @@ model Rental {
   @@index([customerId])
   @@index([vehicleId])
   @@index([branchId])
+  @@index([branchId, status])       // Dashboard, rental listings filtered by branch + status
+  @@index([status, returnDate])     // Completed rentals date-range queries, revenue aggregation
+  @@index([pickupDate])             // Analytics date-range OR conditions
 }
 
 model MaintenanceExpense {
@@ -127,6 +130,8 @@ model MaintenanceExpense {
 
   @@index([branchId])
   @@index([vehicleId])
+  @@index([date])                   // Analytics + reports date-range filtering
+  @@index([branchId, date])         // Branch-scoped maintenance date queries
 }
 
 model Setting {

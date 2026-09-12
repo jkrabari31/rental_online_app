@@ -3,17 +3,29 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { BranchManagement } from './pages/BranchManagement';
-import { UserManagement } from './pages/UserManagement';
-import { Vehicles } from './pages/Vehicles';
-import { ActiveRentals } from './pages/ActiveRentals';
-import { CompletedRentals } from './pages/CompletedRentals';
-import { Reports } from './pages/Reports';
-import { Analysis } from './pages/Analysis';
-import { Settings } from './pages/Settings';
-import { Maintenance } from './pages/Maintenance';
+import { Suspense, lazy } from 'react';
+
+// Lazy-load all pages for code-splitting (each becomes a separate JS chunk)
+const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const BranchManagement = lazy(() => import('./pages/BranchManagement').then(m => ({ default: m.BranchManagement })));
+const UserManagement = lazy(() => import('./pages/UserManagement').then(m => ({ default: m.UserManagement })));
+const Vehicles = lazy(() => import('./pages/Vehicles').then(m => ({ default: m.Vehicles })));
+const ActiveRentals = lazy(() => import('./pages/ActiveRentals').then(m => ({ default: m.ActiveRentals })));
+const CompletedRentals = lazy(() => import('./pages/CompletedRentals').then(m => ({ default: m.CompletedRentals })));
+const Reports = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
+const Analysis = lazy(() => import('./pages/Analysis').then(m => ({ default: m.Analysis })));
+const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const Maintenance = lazy(() => import('./pages/Maintenance').then(m => ({ default: m.Maintenance })));
+
+// Lightweight loading fallback for lazy-loaded pages
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-pulse text-muted-foreground text-sm">Loading...</div>
+    </div>
+  );
+}
 
 /** Smart index redirect based on user role */
 function IndexRedirect() {
@@ -26,6 +38,7 @@ function IndexRedirect() {
 
 function AppRoutes() {
   return (
+    <Suspense fallback={<PageLoader />}>
     <Routes>
       {/* Public Login Route */}
       <Route path="/login" element={<Login />} />
@@ -102,6 +115,7 @@ function AppRoutes() {
       {/* Fallback Catch-all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 }
 

@@ -47,7 +47,7 @@ export function Vehicles() {
 
   const loadBranches = async () => {
     try {
-      const data = await api.get<any[]>('/branches');
+      const data = await api.get<any[]>('/branches?slim=true');
       setBranches(data || []);
     } catch (err) {
       console.error('Failed to load branches:', err);

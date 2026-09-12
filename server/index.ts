@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import session from 'express-session';
 import cors from 'cors';
+import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -31,6 +32,7 @@ const PORT = parseInt(process.env.PORT || '3001');
 const isDev = process.env.NODE_ENV !== 'production';
 
 // Middleware
+app.use(compression()); // Gzip compress all responses (typically 60-80% size reduction on JSON)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -92,7 +94,9 @@ app.use('/api', (req, res) => {
 // Serve the React build whenever dist exists (production or built server)
 const distPath = path.join(__dirname, '../dist');
 if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
+  // Vite assets have content hashes — cache aggressively (1 year)
+  app.use('/assets', express.static(path.join(distPath, 'assets'), { maxAge: '1y', immutable: true }));
+  app.use(express.static(distPath, { maxAge: '1h' }));
 
   // All non-API routes serve the React SPA
   app.use((req, res) => {

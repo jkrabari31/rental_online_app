@@ -34,9 +34,11 @@ export function Maintenance() {
 
   const loadData = async () => {
     try {
-      const v = await api.get<any[]>('/vehicles');
+      const [v, m] = await Promise.all([
+        api.get<any[]>('/vehicles'),
+        api.get<any[]>('/maintenance'),
+      ]);
       setVehicles(v || []);
-      const m = await api.get<any[]>('/maintenance');
       setMaintenanceRecords(m || []);
     } catch (err: any) {
       console.error('Failed to load maintenance data:', err);

@@ -34,9 +34,9 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     const rentals = await prisma.rental.findMany({
       where,
       include: {
-        customer: true,
-        vehicle: { include: { branch: true } },
-        branch: true,
+        customer: { select: { id: true, name: true, mobileNumber: true, email: true, address: true, idProofType: true, idProofNumber: true } },
+        vehicle: { select: { id: true, vehicleName: true, vehicleNumber: true, vehicleType: true, hourlyRate: true, securityDeposit: true, rate1hr: true, rate3hr: true, rate6hr: true, rate12hr: true, rate24hr: true, status: true, branchId: true, branch: { select: { id: true, name: true } } } },
+        branch: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
