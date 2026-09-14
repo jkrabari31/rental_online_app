@@ -29,6 +29,22 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       if (req.query.pickupDateLte) where.pickupDate.lte = new Date(req.query.pickupDateLte as string);
     }
 
+    // Branch users can only view recent 2 days of completed rentals (Admin has full historical access)
+    const user = req.session.user;
+    if (user?.role !== 'ADMIN' && where.status === 'COMPLETED') {
+      const now = new Date();
+      // Start of yesterday (covers recent 2 days: yesterday and today)
+      const twoDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+
+      if (!where.returnDate) {
+        where.returnDate = {};
+      }
+      // If no start date requested or requested start date is older than twoDaysAgo, strictly enforce twoDaysAgo
+      if (!where.returnDate.gte || new Date(where.returnDate.gte) < twoDaysAgo) {
+        where.returnDate.gte = twoDaysAgo;
+      }
+    }
+
     if (req.query.vehicleId) where.vehicleId = req.query.vehicleId as string;
 
     const rentals = await prisma.rental.findMany({

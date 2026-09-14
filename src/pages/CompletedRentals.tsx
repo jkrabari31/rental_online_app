@@ -15,13 +15,68 @@ export function CompletedRentals() {
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<any>(null);
   
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const [startDate, setStartDate] = useState(() => {
+  const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  const yesterday = useMemo(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() - 1);
     return format(d, 'yyyy-MM-dd');
-  });
+  }, []);
+
+  // Admin defaults to Today; Branch defaults to Recent 2 Days (Yesterday to Today)
+  const [startDate, setStartDate] = useState(() => (isAdmin ? today : yesterday));
   const [endDate, setEndDate] = useState(today);
+  const [activePreset, setActivePreset] = useState<string>(() => (isAdmin ? 'today' : '2days'));
+
+  // Sync dates when auth role resolves
+  useEffect(() => {
+    if (isAdmin) {
+      setStartDate(today);
+      setEndDate(today);
+      setActivePreset('today');
+    } else {
+      setStartDate(yesterday);
+      setEndDate(today);
+      setActivePreset('2days');
+    }
+  }, [isAdmin, today, yesterday]);
+
+  const applyPreset = (preset: string) => {
+    setActivePreset(preset);
+    if (preset === 'today') {
+      setStartDate(today);
+      setEndDate(today);
+    } else if (preset === 'yesterday') {
+      setStartDate(yesterday);
+      setEndDate(yesterday);
+    } else if (preset === '2days') {
+      setStartDate(yesterday);
+      setEndDate(today);
+    } else if (preset === '7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 6);
+      setStartDate(format(d, 'yyyy-MM-dd'));
+      setEndDate(today);
+    } else if (preset === '30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 29);
+      setStartDate(format(d, 'yyyy-MM-dd'));
+      setEndDate(today);
+    } else if (preset === 'all') {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+
+  const handleCustomDateChange = (type: 'start' | 'end', val: string) => {
+    setActivePreset('custom');
+    if (!isAdmin) {
+      // Strictly prevent selecting before yesterday or after today for branch users
+      if (val && val < yesterday) val = yesterday;
+      if (val && val > today) val = today;
+    }
+    if (type === 'start') setStartDate(val);
+    else setEndDate(val);
+  };
 
   const { currencySymbol } = useAppStore();
 
@@ -31,14 +86,19 @@ export function CompletedRentals() {
 
   const loadData = async () => {
     try {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      let query = '/rentals?status=COMPLETED';
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query += `&returnDateGte=${start.toISOString()}`;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query += `&returnDateLte=${end.toISOString()}`;
+      }
 
-      const data = await api.get<any[]>(
-        `/rentals?status=COMPLETED&returnDateGte=${start.toISOString()}&returnDateLte=${end.toISOString()}`
-      );
+      const data = await api.get<any[]>(query);
       setRentals(data || []);
       
       if (!settings) {
@@ -155,32 +215,128 @@ export function CompletedRentals() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Completed Transactions</h1>
-          <p className="text-muted-foreground mt-1">{filteredRentals.length} records found</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center space-x-2">
-            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-[135px] h-9" />
-            <span className="text-muted-foreground text-sm font-medium">to</span>
-            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-[135px] h-9" />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Completed Transactions</h1>
+            <p className="text-muted-foreground mt-1">{filteredRentals.length} records found</p>
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search..." 
+                className="w-48 sm:w-56 pl-9 h-9"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => exportData('excel')}>
+              <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => exportData('csv')}>
+              <FileDown className="w-4 h-4 mr-2" /> CSV
+            </Button>
+          </div>
+        </div>
+
+        {/* Date Filters Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground mr-1">Quick Filters:</span>
+            {!isAdmin ? (
+              <>
+                <Button
+                  size="sm"
+                  variant={activePreset === '2days' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('2days')}
+                >
+                  Recent 2 Days
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePreset === 'today' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('today')}
+                >
+                  Today Only
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePreset === 'yesterday' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('yesterday')}
+                >
+                  Yesterday Only
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant={activePreset === 'today' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('today')}
+                >
+                  Today
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePreset === 'yesterday' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('yesterday')}
+                >
+                  Yesterday
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePreset === '7days' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('7days')}
+                >
+                  Last 7 Days
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePreset === '30days' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('30days')}
+                >
+                  Last 30 Days
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePreset === 'all' ? 'default' : 'outline'}
+                  className="h-8 text-xs font-medium"
+                  onClick={() => applyPreset('all')}
+                >
+                  All Time
+                </Button>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-muted-foreground font-medium">Custom:</span>
             <Input 
-              placeholder="Search..." 
-              className="w-48 sm:w-56 pl-9 h-9"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              type="date" 
+              value={startDate} 
+              min={!isAdmin ? yesterday : undefined}
+              max={!isAdmin ? today : undefined}
+              onChange={e => handleCustomDateChange('start', e.target.value)} 
+              className="w-[135px] h-8 text-xs" 
+            />
+            <span className="text-muted-foreground text-xs font-medium">to</span>
+            <Input 
+              type="date" 
+              value={endDate} 
+              min={!isAdmin ? yesterday : undefined}
+              max={!isAdmin ? today : undefined}
+              onChange={e => handleCustomDateChange('end', e.target.value)} 
+              className="w-[135px] h-8 text-xs" 
             />
           </div>
-          <Button variant="outline" size="sm" onClick={() => exportData('excel')}>
-            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => exportData('csv')}>
-            <FileDown className="w-4 h-4 mr-2" /> CSV
-          </Button>
         </div>
       </div>
 
@@ -253,7 +409,7 @@ export function CompletedRentals() {
             {filteredRentals.length === 0 && (
               <TableRow>
                 <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-muted-foreground">
-                  No completed rentals found for the selected date range.
+                  {!isAdmin ? 'No completed rentals found for the recent 2 days.' : 'No completed rentals found for the selected date range.'}
                 </TableCell>
               </TableRow>
             )}
