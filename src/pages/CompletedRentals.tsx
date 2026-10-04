@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { FileSpreadsheet, FileDown, Search, Printer } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -319,22 +320,20 @@ export function CompletedRentals() {
 
           <div className="flex items-center space-x-2">
             <span className="text-xs text-muted-foreground font-medium">Custom:</span>
-            <Input 
-              type="date" 
+            <DatePicker 
               value={startDate} 
-              min={!isAdmin ? yesterday : undefined}
-              max={!isAdmin ? today : undefined}
-              onChange={e => handleCustomDateChange('start', e.target.value)} 
-              className="w-[135px] h-8 text-xs" 
+              onChange={val => handleCustomDateChange('start', val)} 
+              size="sm"
+              className="w-[145px]" 
+              placeholder="Start date"
             />
             <span className="text-muted-foreground text-xs font-medium">to</span>
-            <Input 
-              type="date" 
+            <DatePicker 
               value={endDate} 
-              min={!isAdmin ? yesterday : undefined}
-              max={!isAdmin ? today : undefined}
-              onChange={e => handleCustomDateChange('end', e.target.value)} 
-              className="w-[135px] h-8 text-xs" 
+              onChange={val => handleCustomDateChange('end', val)} 
+              size="sm"
+              className="w-[145px]" 
+              placeholder="End date"
             />
           </div>
         </div>

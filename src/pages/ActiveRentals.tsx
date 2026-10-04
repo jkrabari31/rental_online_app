@@ -37,14 +37,18 @@ export function ActiveRentals() {
     pickupDate: new Date(),
     selectedPackage: 'HOURLY',
     depositAmount: 0,
-    depositPaymentMode: 'CASH' as 'CASH' | 'ONLINE',
+    depositPaymentMode: '' as 'CASH' | 'ONLINE' | '',
     notes: ''
   });
 
   const [isExchangeOpen, setIsExchangeOpen] = useState(false);
+  const [exchangeVehicleSearch, setExchangeVehicleSearch] = useState('');
+  const [isExchangeVehicleDropdownOpen, setIsExchangeVehicleDropdownOpen] = useState(false);
   const [exchangeFormData, setExchangeFormData] = useState({
     newVehicleId: '',
     oldVehicleStatus: 'INACTIVE',
+    depositAmount: 0,
+    depositPaymentMode: '' as 'CASH' | 'ONLINE' | '',
     reason: ''
   });
 
@@ -179,7 +183,7 @@ export function ActiveRentals() {
       pickupDate: new Date(),
       selectedPackage: 'HOURLY',
       depositAmount: settings?.defaultDepositAmount || 0,
-      depositPaymentMode: 'CASH',
+      depositPaymentMode: '',
       notes: ''
     });
     setVehicleSearch('');
@@ -191,6 +195,10 @@ export function ActiveRentals() {
     e.preventDefault();
     if (!formData.vehicleId) {
       alert("Please select a vehicle to continue.");
+      return;
+    }
+    if (!formData.depositPaymentMode) {
+      alert("Please select a Deposit Payment Mode (Cash or Online) before starting the rental.");
       return;
     }
 
@@ -236,14 +244,33 @@ export function ActiveRentals() {
 
   const openExchangeDialog = (rental: any) => {
     setSelectedRental(rental);
+    setExchangeVehicleSearch('');
+    setIsExchangeVehicleDropdownOpen(false);
     setExchangeFormData({
       newVehicleId: '',
       oldVehicleStatus: 'INACTIVE',
+      depositAmount: Number(rental.depositAmount) || 0,
+      depositPaymentMode: '',
       reason: ''
     });
     setIsExchangeOpen(true);
     loadAvailableVehicles(includeAllBranches);
   };
+
+  const selectedExchangeVehicle = useMemo(() => {
+    return vehicles.find(v => v.id === exchangeFormData.newVehicleId);
+  }, [vehicles, exchangeFormData.newVehicleId]);
+
+  const filteredExchangeVehicles = useMemo(() => {
+    const s = exchangeVehicleSearch.toLowerCase();
+    return vehicles
+      .filter(v => v.id !== selectedRental?.vehicleId)
+      .filter(v => 
+        (v.vehicleName || '').toLowerCase().includes(s) || 
+        (v.vehicleNumber || '').toLowerCase().includes(s) ||
+        (v.branch?.name || '').toLowerCase().includes(s)
+      );
+  }, [vehicles, exchangeVehicleSearch, selectedRental]);
 
   const toggleAccident = async (rental: any) => {
     try {
@@ -488,17 +515,33 @@ export function ActiveRentals() {
 
   const handleExchange = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRental || !exchangeFormData.newVehicleId || !exchangeFormData.reason) return;
+    if (!selectedRental || !exchangeFormData.newVehicleId || !exchangeFormData.reason) {
+      alert("Please select a replacement vehicle and specify a reason for exchange.");
+      return;
+    }
+    if (!exchangeFormData.depositPaymentMode) {
+      alert("Please select a Deposit Payment Mode (Cash or Online) before confirming exchange.");
+      return;
+    }
 
     try {
       const now = format(new Date(), 'PPp');
       const oldVehicleName = `${selectedRental.vehicle.vehicleName} (${selectedRental.vehicle.vehicleNumber})`;
-      const noteAppend = `[VEHICLE EXCHANGED on ${now}] Swapped from ${oldVehicleName}. Reason: ${exchangeFormData.reason}`;
+      const newVehicleName = selectedExchangeVehicle ? `${selectedExchangeVehicle.vehicleName} (${selectedExchangeVehicle.vehicleNumber})` : 'New vehicle';
+      
+      const depositDiff = Number(exchangeFormData.depositAmount || 0) - Number(selectedRental.depositAmount || 0);
+      const depositNote = depositDiff !== 0 
+        ? ` (Deposit updated: ${currencySymbol}${selectedRental.depositAmount} -> ${currencySymbol}${exchangeFormData.depositAmount}, diff ${depositDiff > 0 ? '+' : ''}${currencySymbol}${depositDiff})` 
+        : '';
+        
+      const noteAppend = `[VEHICLE EXCHANGED on ${now}] Swapped from ${oldVehicleName} to ${newVehicleName}. Reason: ${exchangeFormData.reason}${depositNote}`;
 
       await api.post(`/rentals/${selectedRental.id}/swap`, {
         oldVehicleId: selectedRental.vehicleId,
         newVehicleId: exchangeFormData.newVehicleId,
         oldVehicleStatus: exchangeFormData.oldVehicleStatus,
+        depositAmount: Number(exchangeFormData.depositAmount) || 0,
+        depositPaymentMode: exchangeFormData.depositPaymentMode,
         notesAppend: noteAppend
       });
       setIsExchangeOpen(false);
@@ -875,26 +918,32 @@ export function ActiveRentals() {
                   <Label className="text-slate-600 dark:text-slate-400 font-medium">Advance Deposit ({currencySymbol})</Label>
                   <Input 
                     type="number" 
-                    value={formData.depositAmount} 
-                    onChange={e => setFormData({...formData, depositAmount: parseFloat(e.target.value) || 0})}
+                    value={formData.depositAmount === 0 ? '' : formData.depositAmount} 
+                    onChange={e => setFormData({...formData, depositAmount: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0})}
                     placeholder="0.00"
+                    className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-slate-600 dark:text-slate-400 font-medium">Deposit Payment Mode</Label>
+                  <Label className="text-slate-600 dark:text-slate-400 font-medium">
+                    Deposit Payment Mode <span className="text-red-500 font-bold">*</span>
+                  </Label>
                   <Select 
-                    value={formData.depositPaymentMode} 
-                    onValueChange={(v: string | null) => setFormData({...formData, depositPaymentMode: (v || 'CASH') as 'CASH' | 'ONLINE'})}
+                    value={formData.depositPaymentMode || ''} 
+                    onValueChange={(v: string | null) => setFormData({...formData, depositPaymentMode: (v || '') as 'CASH' | 'ONLINE'})}
                   >
-                    <SelectTrigger className="font-semibold">
-                      <SelectValue placeholder="Select Payment Mode" />
+                    <SelectTrigger className={`font-semibold ${!formData.depositPaymentMode ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-400/30' : ''}`}>
+                      <SelectValue placeholder="Select Payment Mode (Required)" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="CASH">💵 Cash</SelectItem>
                       <SelectItem value="ONLINE">📱 Online / UPI</SelectItem>
                     </SelectContent>
                   </Select>
+                  {!formData.depositPaymentMode && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Please select a payment mode to proceed</p>
+                  )}
                 </div>
 
                 <div className="space-y-1 md:col-span-2">
@@ -910,7 +959,13 @@ export function ActiveRentals() {
 
             <div className="flex justify-end space-x-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setIsNewRentalOpen(false)}>Cancel</Button>
-              <Button type="submit" className="px-6 bg-blue-600 hover:bg-blue-700">Start Rental</Button>
+              <Button 
+                type="submit" 
+                disabled={!formData.vehicleId || !formData.depositPaymentMode}
+                className="px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Start Rental
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -1110,7 +1165,7 @@ export function ActiveRentals() {
 
       {/* EXCHANGE VEHICLE DIALOG */}
       <Dialog open={isExchangeOpen} onOpenChange={setIsExchangeOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Exchange Rental Vehicle</DialogTitle>
           </DialogHeader>
@@ -1118,8 +1173,16 @@ export function ActiveRentals() {
           {selectedRental && (
             <form onSubmit={handleExchange} className="space-y-4 mt-1">
               <div className="bg-amber-50 dark:bg-amber-950/40 p-3.5 rounded-xl border border-amber-200 dark:border-amber-800 text-sm">
-                <p className="text-amber-800 dark:text-amber-300 font-semibold mb-1">Current Vehicle:</p>
-                <p className="text-slate-900 dark:text-slate-100 font-medium">{selectedRental.vehicle.vehicleName} ({selectedRental.vehicle.vehicleNumber})</p>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-amber-800 dark:text-amber-300 font-semibold mb-0.5">Current Vehicle:</p>
+                    <p className="text-slate-900 dark:text-slate-100 font-medium">{selectedRental.vehicle.vehicleName} ({selectedRental.vehicle.vehicleNumber})</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">Deposit Paid</p>
+                    <p className="font-bold text-slate-900 dark:text-slate-100">{currencySymbol}{selectedRental.depositAmount || 0}</p>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -1133,31 +1196,139 @@ export function ActiveRentals() {
                 </Select>
               </div>
 
-              <div className="space-y-1">
-                <Label className="font-medium">New Replacement Vehicle</Label>
-                <Select value={exchangeFormData.newVehicleId} onValueChange={(v: string | null) => setExchangeFormData({...exchangeFormData, newVehicleId: v || ''})}>
-                  <SelectTrigger><SelectValue placeholder="Select available bike..." /></SelectTrigger>
-                  <SelectContent>
-                    {vehicles.filter(v => v.id !== selectedRental.vehicleId).map(v => (
-                      <SelectItem key={v.id} value={v.id}>{v.vehicleName} - {v.vehicleNumber} ({v.branch?.name ? v.branch.name : ''})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {/* Searchable Replacement Vehicle Dropdown */}
+              <div className="space-y-1 relative">
+                <Label className="font-medium">
+                  New Replacement Vehicle <span className="text-red-500 font-bold">*</span>
+                </Label>
+                <div 
+                  className="relative" 
+                  tabIndex={0} 
+                  onBlur={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) {
+                      setIsExchangeVehicleDropdownOpen(false);
+                    }
+                  }}
+                >
+                  <Input 
+                    value={selectedExchangeVehicle ? `${selectedExchangeVehicle.vehicleName} - ${selectedExchangeVehicle.vehicleNumber}${selectedExchangeVehicle.branch?.name ? ` (${selectedExchangeVehicle.branch.name})` : ''}` : exchangeVehicleSearch}
+                    onChange={e => {
+                      if (exchangeFormData.newVehicleId) setExchangeFormData({...exchangeFormData, newVehicleId: ''});
+                      setExchangeVehicleSearch(e.target.value);
+                      setIsExchangeVehicleDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsExchangeVehicleDropdownOpen(true)}
+                    placeholder="Search replacement bike by name, number, or branch..."
+                    className={!exchangeFormData.newVehicleId ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-400/30' : ''}
+                  />
+                  {isExchangeVehicleDropdownOpen && (
+                    <div 
+                      className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60 overflow-y-auto p-1"
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      {filteredExchangeVehicles.map(v => (
+                        <div 
+                          key={v.id} 
+                          className="px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex justify-between items-center rounded-lg transition-colors"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setExchangeFormData({
+                              ...exchangeFormData, 
+                              newVehicleId: v.id,
+                              depositAmount: v.securityDeposit && v.securityDeposit > exchangeFormData.depositAmount ? v.securityDeposit : exchangeFormData.depositAmount
+                            });
+                            setExchangeVehicleSearch('');
+                            setIsExchangeVehicleDropdownOpen(false);
+                          }}
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-slate-900 dark:text-slate-100">{v.vehicleName} - {v.vehicleNumber}</span>
+                            {v.branch?.name && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
+                                {v.branch.name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{currencySymbol}{v.hourlyRate}/hr</span>
+                            {v.securityDeposit > 0 && (
+                              <div className="text-[10px] text-muted-foreground">Dep: {currencySymbol}{v.securityDeposit}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {filteredExchangeVehicles.length === 0 && (
+                        <div className="p-3 text-sm text-center text-muted-foreground">No available replacement vehicles found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Deposit Modification Facility */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border">
+                <div className="space-y-1">
+                  <Label className="font-medium text-xs text-slate-700 dark:text-slate-300">
+                    Total Deposit Amount ({currencySymbol})
+                  </Label>
+                  <Input 
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={exchangeFormData.depositAmount === 0 ? '' : exchangeFormData.depositAmount}
+                    onChange={e => setExchangeFormData({...exchangeFormData, depositAmount: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                    className="h-9 font-semibold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Initial: {currencySymbol}{selectedRental.depositAmount || 0}
+                    {selectedExchangeVehicle?.securityDeposit ? ` • Default: ${currencySymbol}${selectedExchangeVehicle.securityDeposit}` : ''}
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="font-medium text-xs text-slate-700 dark:text-slate-300">
+                    Deposit Payment Mode <span className="text-red-500 font-bold">*</span>
+                  </Label>
+                  <Select 
+                    value={exchangeFormData.depositPaymentMode || ''} 
+                    onValueChange={(v: string | null) => setExchangeFormData({...exchangeFormData, depositPaymentMode: (v || '') as 'CASH' | 'ONLINE'})}
+                  >
+                    <SelectTrigger className={`h-9 font-semibold ${!exchangeFormData.depositPaymentMode ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-400/30' : ''}`}>
+                      <SelectValue placeholder="Select Mode (Required)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CASH">💵 Cash</SelectItem>
+                      <SelectItem value="ONLINE">📱 Online / UPI</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!exchangeFormData.depositPaymentMode && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Please select a payment mode</p>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1">
-                <Label className="font-medium">Reason for Exchange</Label>
+                <Label className="font-medium">
+                  Reason for Exchange <span className="text-red-500 font-bold">*</span>
+                </Label>
                 <Input 
                   value={exchangeFormData.reason} 
                   onChange={e => setExchangeFormData({...exchangeFormData, reason: e.target.value})}
                   required
-                  placeholder="e.g. Flat tyre, Engine breakdown"
+                  placeholder="e.g. Flat tyre, Engine breakdown, Customer wanted upgrade"
                 />
               </div>
 
               <div className="flex justify-end space-x-2 pt-2">
                 <Button type="button" variant="outline" onClick={() => setIsExchangeOpen(false)}>Cancel</Button>
-                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Confirm Exchange</Button>
+                <Button 
+                  type="submit" 
+                  disabled={!exchangeFormData.newVehicleId || !exchangeFormData.depositPaymentMode || !exchangeFormData.reason}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                >
+                  Confirm Exchange
+                </Button>
               </div>
             </form>
           )}

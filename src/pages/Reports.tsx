@@ -2,12 +2,24 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
-import { FileSpreadsheet, FileDown, CalendarRange, DollarSign, Wallet, Building2 } from 'lucide-react';
+import {
+  FileSpreadsheet,
+  FileDown,
+  CalendarRange,
+  DollarSign,
+  Wallet,
+  Building2,
+  Receipt,
+  Tag,
+  TrendingDown,
+  TrendingUp
+} from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function Reports() {
@@ -17,6 +29,7 @@ export function Reports() {
   const [isExporting, setIsExporting] = useState(false);
   const { currencySymbol } = useAppStore();
 
+  const [settings, setSettings] = useState<any>(null);
   const [branches, setBranches] = useState<any[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
 
@@ -29,7 +42,17 @@ export function Reports() {
 
   useEffect(() => {
     loadBranches();
+    loadSettings();
   }, []);
+
+  const loadSettings = async () => {
+    try {
+      const s = await api.get<any>('/settings');
+      setSettings(s || {});
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+    }
+  };
 
   const loadBranches = async () => {
     try {
@@ -46,7 +69,7 @@ export function Reports() {
       start.setHours(0, 0, 0, 0);
       const end = new Date(revEndDate);
       end.setHours(23, 59, 59, 999);
-      
+
       let query = `/rentals?status=COMPLETED&returnDateGte=${start.toISOString()}&returnDateLte=${end.toISOString()}`;
       if (revVehicleId !== 'ALL') {
         query += `&vehicleId=${revVehicleId}`;
@@ -83,8 +106,103 @@ export function Reports() {
     loadDashboardData();
   }, [revStartDate, revEndDate, revVehicleId, selectedBranchId]);
 
-  const totalRev = rentals.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
-  const totalBase = totalRev - rentals.reduce((sum, r) => sum + (Number(r.settlementAmount) || 0), 0);
+  // Helper to compute system standard gross billable charge based on duration and vehicle package/hourly rates
+  const calculateGrossRentalAmount = (r: any, roundingRule: string = 'EXACT'): number => {
+    if (!r) return 0;
+    if (!r.pickupDate || !r.returnDate || !r.vehicle) {
+      return Number(r.totalAmount) || 0;
+    }
+
+    const start = new Date(r.pickupDate);
+    const end = new Date(r.returnDate);
+    if (end < start) return 0;
+
+    const diffMins = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000));
+    const vehicle = r.vehicle;
+    const hourlyRate = Number(vehicle.hourlyRate) || 0;
+    const pkg = r.selectedPackage || 'HOURLY';
+
+    let pkgHours = 0;
+    let pkgPrice = 0;
+
+    if (pkg === '1HR' && vehicle.rate1hr) { pkgHours = 1; pkgPrice = vehicle.rate1hr; }
+    else if (pkg === '3HR' && vehicle.rate3hr) { pkgHours = 3; pkgPrice = vehicle.rate3hr; }
+    else if (pkg === '6HR' && vehicle.rate6hr) { pkgHours = 6; pkgPrice = vehicle.rate6hr; }
+    else if (pkg === '12HR' && vehicle.rate12hr) { pkgHours = 12; pkgPrice = vehicle.rate12hr; }
+    else if (pkg === '24HR' && vehicle.rate24hr) { pkgHours = 24; pkgPrice = vehicle.rate24hr; }
+
+    let baseAmount = 0;
+    let extraHours = 0;
+
+    if (pkgHours > 0) {
+      baseAmount = pkgPrice;
+      const pkgMinutes = pkgHours * 60;
+      const overtimeMinutes = Math.max(0, diffMins - pkgMinutes);
+
+      if (overtimeMinutes > 0) {
+        if (roundingRule === 'EXACT') {
+          extraHours = overtimeMinutes / 60;
+        } else if (roundingRule === 'CEIL') {
+          extraHours = Math.ceil(overtimeMinutes / 60);
+        } else if (roundingRule === 'ROUND_30') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem === 0 ? whole : rem <= 30 ? whole + 0.5 : whole + 1;
+        } else if (roundingRule === 'GRACE_15') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem <= 15 ? whole : whole + 1;
+        } else if (roundingRule === 'GRACE_PERIOD') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          if (rem <= 15) {
+            extraHours = whole;
+          } else if (rem <= 45) {
+            extraHours = whole + 0.5;
+          } else {
+            extraHours = whole + 1;
+          }
+        }
+      }
+    } else {
+      // HOURLY Rental: First 1 Hour (60 min) is FIXED minimum base rate
+      baseAmount = hourlyRate;
+      const overtimeMinutes = Math.max(0, diffMins - 60);
+
+      if (overtimeMinutes > 0) {
+        if (roundingRule === 'EXACT') {
+          extraHours = overtimeMinutes / 60;
+        } else if (roundingRule === 'CEIL') {
+          extraHours = Math.ceil(overtimeMinutes / 60);
+        } else if (roundingRule === 'ROUND_30') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem === 0 ? whole : rem <= 30 ? whole + 0.5 : whole + 1;
+        } else if (roundingRule === 'GRACE_15') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          extraHours = rem <= 15 ? whole : whole + 1;
+        } else if (roundingRule === 'GRACE_PERIOD') {
+          const whole = Math.floor(overtimeMinutes / 60);
+          const rem = overtimeMinutes % 60;
+          if (rem <= 15) {
+            extraHours = whole;
+          } else if (rem <= 45) {
+            extraHours = whole + 0.5;
+          } else {
+            extraHours = whole + 1;
+          }
+        }
+      }
+    }
+
+    return Math.max(0, baseAmount + (extraHours * hourlyRate));
+  };
+
+  const roundingRule = settings?.hourlyRoundingRule || 'EXACT';
+  const totalActualRev = rentals.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
+  const totalGross = rentals.reduce((sum, r) => sum + calculateGrossRentalAmount(r, roundingRule), 0);
+  const totalDiscount = totalActualRev - totalGross;
   const totalAdvanceInHand = activeRentals.reduce((sum, r) => sum + (Number(r.depositAmount) || 0), 0);
 
   const handleExport = async (formatType: 'excel' | 'csv', overrideStart?: string, overrideEnd?: string) => {
@@ -111,29 +229,38 @@ export function Reports() {
         return;
       }
 
+      const rule = settings?.hourlyRoundingRule || 'EXACT';
       const totalRevenue = exportRentals.reduce((sum: number, r: any) => sum + (Number(r.totalAmount) || 0), 0);
+      const totalGrossExport = exportRentals.reduce((sum: number, r: any) => sum + calculateGrossRentalAmount(r, rule), 0);
       const totalHours = exportRentals.reduce((sum: number, r: any) => sum + (Number(r.totalHours) || 0), 0);
       const totalSettlements = exportRentals.reduce((sum: number, r: any) => sum + (Number(r.settlementAmount) || 0), 0);
-      const totalBase = totalRevenue - totalSettlements;
+      const totalDeposits = exportRentals.reduce((sum: number, r: any) => sum + (Number(r.depositAmount) || 0), 0);
+      const totalAdjustment = totalRevenue - totalGrossExport;
 
-      const data = exportRentals.map((r: any) => ({
-        'Rental ID': `RNT-${r.id}`,
-        'Branch': r.branch?.name || '',
-        'Customer Name': r.customer.name,
-        'Customer Mobile': r.customer.mobileNumber,
-        'Vehicle': `${r.vehicle.vehicleName} (${r.vehicle.vehicleNumber})`,
-        'Package': r.selectedPackage || 'HOURLY',
-        'Hourly Rate': r.vehicle.hourlyRate,
-        'Pickup Date': format(new Date(r.pickupDate), 'PPp'),
-        'Return Date': format(new Date(r.returnDate), 'PPp'),
-        'Total Hours': (() => { const m = Math.round((r.totalHours || 0) * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })(),
-        'Base Rent': (Number(r.totalAmount || 0) - Number(r.settlementAmount || 0)),
-        'Settlement': r.settlementAmount || 0,
-        'Net Amount': r.totalAmount || 0,
-        'Deposit': r.depositAmount || 0,
-        'Payment Mode': r.paymentMode || 'CASH',
-        'Notes': r.notes || '',
-      }));
+      const data = exportRentals.map((r: any) => {
+        const gross = calculateGrossRentalAmount(r, rule);
+        const net = Number(r.totalAmount || 0);
+        const adjustment = net - gross;
+        return {
+          'Rental ID': `RNT-${r.id}`,
+          'Branch': r.branch?.name || '',
+          'Customer Name': r.customer?.name || '',
+          'Customer Mobile': r.customer?.mobileNumber || '',
+          'Vehicle': `${r.vehicle?.vehicleName || ''} (${r.vehicle?.vehicleNumber || ''})`,
+          'Package': r.selectedPackage || 'HOURLY',
+          'Hourly Rate': r.vehicle?.hourlyRate || '',
+          'Pickup Date': format(new Date(r.pickupDate), 'PPp'),
+          'Return Date': format(new Date(r.returnDate), 'PPp'),
+          'Total Hours': (() => { const m = Math.round((r.totalHours || 0) * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })(),
+          'Gross Billable Rent': gross,
+          'Advance Deposit': r.depositAmount || 0,
+          'Settlement Collected': r.settlementAmount || 0,
+          'Adjustment / Discount': adjustment,
+          'Actual Collected (Net)': net,
+          'Payment Mode': r.paymentMode || 'CASH',
+          'Notes': r.notes || '',
+        };
+      });
 
       data.push({
         'Rental ID': '',
@@ -146,16 +273,17 @@ export function Reports() {
         'Pickup Date': '',
         'Return Date': 'TOTALS:',
         'Total Hours': (() => { const m = Math.round(totalHours * 60); return `${Math.floor(m / 60)}:${(m % 60).toString().padStart(2, '0')}`; })(),
-        'Base Rent': totalBase,
-        'Settlement': totalSettlements,
-        'Net Amount': totalRevenue,
-        'Deposit': '' as any,
+        'Gross Billable Rent': totalGrossExport,
+        'Advance Deposit': totalDeposits,
+        'Settlement Collected': totalSettlements,
+        'Adjustment / Discount': totalAdjustment,
+        'Actual Collected (Net)': totalRevenue,
         'Payment Mode': '',
         'Notes': '',
       });
 
       const worksheet = XLSX.utils.json_to_sheet(data);
-      
+
       const colWidths = Object.keys(data[0]).map(key => ({
         wch: Math.max(key.length, ...data.map(row => String((row as any)[key] || '').length)) + 2
       }));
@@ -236,24 +364,24 @@ export function Reports() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Start Date</Label>
-                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                <DatePicker value={startDate} onChange={setStartDate} placeholder="Start date" />
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium">End Date</Label>
-                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                <DatePicker value={endDate} onChange={setEndDate} placeholder="End date" />
               </div>
             </div>
             <div className="flex space-x-3 pt-2">
-              <Button 
-                onClick={() => handleExport('excel')} 
+              <Button
+                onClick={() => handleExport('excel')}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                 disabled={isExporting}
               >
                 <FileSpreadsheet className="w-4 h-4 mr-2" />
                 {isExporting ? 'Exporting...' : 'Export Excel'}
               </Button>
-              <Button 
-                onClick={() => handleExport('csv')} 
+              <Button
+                onClick={() => handleExport('csv')}
                 variant="outline"
                 className="flex-1"
                 disabled={isExporting}
@@ -311,17 +439,17 @@ export function Reports() {
               <DollarSign className="w-5 h-5 mr-2 text-emerald-600" />
               Revenue Dashboard
             </CardTitle>
-            <CardDescription>Track income by specific periods and vehicles</CardDescription>
+            <CardDescription>Track income, settlements, and discounts by specific periods and vehicles</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col md:flex-row gap-4 mb-6">
               <div className="flex-1 space-y-2">
                 <Label>Start Date</Label>
-                <Input type="date" value={revStartDate} onChange={e => setRevStartDate(e.target.value)} />
+                <DatePicker value={revStartDate} onChange={setRevStartDate} placeholder="Start date" />
               </div>
               <div className="flex-1 space-y-2">
                 <Label>End Date</Label>
-                <Input type="date" value={revEndDate} onChange={e => setRevEndDate(e.target.value)} />
+                <DatePicker value={revEndDate} onChange={setRevEndDate} placeholder="End date" />
               </div>
               <div className="flex-1 space-y-2">
                 <Label>Vehicle Filter</Label>
@@ -341,38 +469,125 @@ export function Reports() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white dark:bg-slate-950 p-6 rounded-xl border shadow-sm">
-                <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Total Revenue</p>
-                <h3 className="text-4xl font-bold text-emerald-600 dark:text-emerald-400">{currencySymbol}{totalRev.toFixed(2)}</h3>
-                <p className="text-sm text-slate-500 mt-2">{rentals.length} completed rentals</p>
-              </div>
-              <div className="bg-white dark:bg-slate-950 p-6 rounded-xl border shadow-sm">
-                <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-2">Base Income</p>
-                <h3 className="text-3xl font-bold">{currencySymbol}{totalBase.toFixed(2)}</h3>
-                <p className="text-sm text-slate-500 mt-2">Without settlement adjustments</p>
-              </div>
-              <div className="bg-amber-50 dark:bg-amber-950/30 p-6 rounded-xl border border-amber-200 dark:border-amber-800 shadow-sm">
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2 flex items-center">
-                  <Wallet className="w-4 h-4 mr-1.5" /> Advance In Hand
+            {/* Top Row: 3 Settlement & Revenue KPI Cards in a single line on desktop */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              {/* Card 1: Gross Revenue */}
+              <div className="bg-white dark:bg-slate-950 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-blue-400 transition-all">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Gross Revenue (કુલ આવક)</p>
+                  <span className="p-2 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-lg">
+                    <Receipt className="w-4 h-4" />
+                  </span>
+                </div>
+                <h3 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
+                  {currencySymbol}{totalGross.toFixed(2)}
+                </h3>
+                <p className="text-xs text-slate-500 mt-2 flex items-center justify-between">
+                  <span>Standard hourly/package billing</span>
+                  <span className="font-medium text-slate-600 dark:text-slate-300">{rentals.length} completed</span>
                 </p>
-                <h3 className="text-4xl font-bold text-amber-600 dark:text-amber-400">{currencySymbol}{totalAdvanceInHand.toFixed(2)}</h3>
-                <p className="text-sm text-amber-600/70 dark:text-amber-500/70 mt-2">{activeRentals.length} active rental{activeRentals.length !== 1 ? 's' : ''}</p>
               </div>
-              <div className="bg-white dark:bg-slate-950 p-6 rounded-xl border shadow-sm flex flex-col justify-center items-center text-center">
-                <p className="text-sm font-medium text-muted-foreground mb-1">Quick Filters</p>
-                <div className="flex flex-wrap justify-center gap-2 mt-2">
-                  <Button variant="secondary" size="sm" onClick={() => {
+
+              {/* Card 2: Actual Collected Revenue (With Settlement) */}
+              <div className="bg-white dark:bg-slate-950 p-6 rounded-xl border border-emerald-200 dark:border-emerald-900/50 shadow-sm relative overflow-hidden group hover:border-emerald-400 transition-all bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Actual Revenue (વાસ્તવિક આવક)</p>
+                  <span className="p-2 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                    <DollarSign className="w-4 h-4" />
+                  </span>
+                </div>
+                <h3 className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">
+                  {currencySymbol}{totalActualRev.toFixed(2)}
+                </h3>
+                <p className="text-xs text-slate-500 mt-2">
+                  Actual money received in hand (Deposit + Settlement)
+                </p>
+              </div>
+
+              {/* Card 3: Exact Settlement Adjustment / Discount */}
+              <div className={`p-6 rounded-xl border shadow-sm relative overflow-hidden transition-all ${totalDiscount < -0.01
+                ? 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 hover:border-rose-300'
+                : totalDiscount > 0.01
+                  ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/50 hover:border-purple-300'
+                  : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                }`}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className={`text-xs font-semibold uppercase tracking-wider ${totalDiscount < -0.01 ? 'text-rose-700 dark:text-rose-400' : totalDiscount > 0.01 ? 'text-purple-700 dark:text-purple-400' : 'text-slate-500'
+                    }`}>
+                    Settlement Adjustment
+                  </p>
+                  <span className={`p-2 rounded-lg ${totalDiscount < -0.01
+                    ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                    : totalDiscount > 0.01
+                      ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}>
+                    {totalDiscount < -0.01 ? <TrendingDown className="w-4 h-4" /> : totalDiscount > 0.01 ? <TrendingUp className="w-4 h-4" /> : <Tag className="w-4 h-4" />}
+                  </span>
+                </div>
+                <h3 className={`text-3xl font-extrabold tracking-tight ${totalDiscount < -0.01 ? 'text-rose-600 dark:text-rose-400' : totalDiscount > 0.01 ? 'text-purple-600 dark:text-purple-400' : 'text-slate-700 dark:text-slate-300'
+                  }`}>
+                  {totalDiscount < -0.01 ? `-${currencySymbol}${Math.abs(totalDiscount).toFixed(2)}` : totalDiscount > 0.01 ? `+${currencySymbol}${totalDiscount.toFixed(2)}` : `${currencySymbol}0.00`}
+                </h3>
+                <p className="text-xs text-slate-500 mt-2">
+                  {totalDiscount < -0.01
+                    ? `Total discount & waivers given`
+                    : totalDiscount > 0.01
+                      ? `Extra late / damage charges collected`
+                      : `Exact matching (No adjustments / waivers)`}
+                </p>
+              </div>
+            </div>
+
+            {/* Bottom Row: Advance in Hand & Quick Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-amber-50/70 dark:bg-amber-950/30 p-6 rounded-xl border border-amber-200 dark:border-amber-800/60 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-400 uppercase tracking-wider mb-1 flex items-center">
+                    <Wallet className="w-4 h-4 mr-1.5 text-amber-600" /> Advance Deposit In Hand
+                  </p>
+                  <h3 className="text-3xl font-extrabold text-amber-700 dark:text-amber-400 mt-1">
+                    {currencySymbol}{totalAdvanceInHand.toFixed(2)}
+                  </h3>
+                  <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-1">
+                    Held from {activeRentals.length} active ongoing rental{activeRentals.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <div className="hidden sm:flex p-3 bg-amber-100 dark:bg-amber-900/40 rounded-full text-amber-600 dark:text-amber-300">
+                  <Wallet className="w-6 h-6" />
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-950 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-center">
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                  Quick Date Range Filter
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => {
                     const t = new Date();
                     setRevStartDate(format(t, 'yyyy-MM-dd'));
                     setRevEndDate(format(t, 'yyyy-MM-dd'));
                   }}>Today</Button>
-                  <Button variant="secondary" size="sm" onClick={() => {
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const t = new Date();
+                    const weekStart = new Date(t);
+                    weekStart.setDate(t.getDate() - t.getDay());
+                    setRevStartDate(format(weekStart, 'yyyy-MM-dd'));
+                    setRevEndDate(format(t, 'yyyy-MM-dd'));
+                  }}>This Week</Button>
+                  <Button variant="outline" size="sm" onClick={() => {
                     const t = new Date();
                     const m = new Date(t.getFullYear(), t.getMonth(), 1);
                     setRevStartDate(format(m, 'yyyy-MM-dd'));
                     setRevEndDate(format(t, 'yyyy-MM-dd'));
                   }}>This Month</Button>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const t = new Date();
+                    const lastMonth = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+                    const lastMonthEnd = new Date(t.getFullYear(), t.getMonth(), 0);
+                    setRevStartDate(format(lastMonth, 'yyyy-MM-dd'));
+                    setRevEndDate(format(lastMonthEnd, 'yyyy-MM-dd'));
+                  }}>Last Month</Button>
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store';
 import { 
@@ -47,11 +48,35 @@ export function Analysis() {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
+  const [branchesList, setBranchesList] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadBranches();
+  }, []);
+
+  const loadBranches = async () => {
+    try {
+      const b = await api.get<any[]>('/branches?slim=true');
+      setBranchesList(b || []);
+    } catch (e) {
+      console.error('Failed to load branches:', e);
+    }
+  };
 
   // Date Filter State - default to ALL_TIME so all past and sample data shows immediately
   const [datePreset, setDatePreset] = useState<string>('ALL_TIME');
   const [startDate, setStartDate] = useState<string>('ALL');
   const [endDate, setEndDate] = useState<string>('ALL');
+
+  const datePresetLabels: Record<string, string> = {
+    'ALL_TIME': 'All Time',
+    'TODAY': 'Today',
+    'LAST_7_DAYS': 'Last 7 Days',
+    'THIS_MONTH': 'This Month',
+    'LAST_30_DAYS': 'Last 30 Days',
+    'THIS_YEAR': 'This Year',
+    'CUSTOM': 'Custom Range',
+  };
 
   // Preset Date Handlers
   const handlePresetChange = (preset: string | null) => {
@@ -112,6 +137,11 @@ export function Analysis() {
   const timeline = data?.timeline || [];
   const topVehicles = data?.topVehicles || [];
   const branches = data?.branches || [];
+  const allBranches = branchesList.length > 0 ? branchesList : branches;
+
+  const selectedBranchName = selectedBranchId === 'ALL'
+    ? 'All Branches (Global)'
+    : (allBranches.find((b: any) => b.id === selectedBranchId)?.name || selectedBranchId);
 
   const [vehicleTableSearch, setVehicleTableSearch] = useState('');
 
@@ -141,7 +171,7 @@ export function Analysis() {
 
     const summarySheetData = [
       { Metric: 'Date Range', Value: `${startDate} to ${endDate}` },
-      { Metric: 'Selected Branch', Value: selectedBranchId === 'ALL' ? 'All Branches' : branches.find((b: any) => b.id === selectedBranchId)?.name || selectedBranchId },
+      { Metric: 'Selected Branch', Value: selectedBranchName },
       { Metric: 'Gross Revenue', Value: `${currencySymbol}${kpis.totalRevenue || 0}` },
       { Metric: 'Total Maintenance Cost', Value: `${currencySymbol}${kpis.totalMaintenance || 0}` },
       { Metric: 'Net Profit', Value: `${currencySymbol}${kpis.netProfit || 0}` },
@@ -225,11 +255,13 @@ export function Analysis() {
             <Select value={selectedBranchId} onValueChange={(val: string | null) => setSelectedBranchId(val || 'ALL')}>
               <SelectTrigger className="h-10 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xs font-medium">
                 <Building2 className="w-4 h-4 mr-2 text-blue-600 shrink-0" />
-                <SelectValue placeholder="All Branches" />
+                <SelectValue placeholder="All Branches">
+                  {selectedBranchName}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Branches (Global)</SelectItem>
-                {branches.map((b: any) => (
+                {allBranches.map((b: any) => (
                   <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -241,7 +273,9 @@ export function Analysis() {
             <Select value={datePreset} onValueChange={handlePresetChange}>
               <SelectTrigger className="h-10 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xs font-medium">
                 <Calendar className="w-4 h-4 mr-2 text-indigo-600 shrink-0" />
-                <SelectValue />
+                <SelectValue>
+                  {datePresetLabels[datePreset] || datePreset}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL_TIME">All Time</SelectItem>
@@ -258,18 +292,18 @@ export function Analysis() {
           {/* Custom Date Pickers */}
           {datePreset === 'CUSTOM' && (
             <div className="flex items-center space-x-2">
-              <Input 
-                type="date" 
+              <DatePicker 
                 value={startDate} 
-                onChange={(e) => setStartDate(e.target.value)} 
-                className="h-10 w-36 rounded-xl" 
+                onChange={setStartDate} 
+                className="w-40 rounded-xl" 
+                placeholder="Start date"
               />
               <span className="text-muted-foreground text-xs font-semibold">to</span>
-              <Input 
-                type="date" 
+              <DatePicker 
                 value={endDate} 
-                onChange={(e) => setEndDate(e.target.value)} 
-                className="h-10 w-36 rounded-xl" 
+                onChange={setEndDate} 
+                className="w-40 rounded-xl" 
+                placeholder="End date"
               />
             </div>
           )}

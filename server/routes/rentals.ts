@@ -120,7 +120,12 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       });
     }
 
-    const depositPaymentMode = (rentalData.depositPaymentMode === 'ONLINE' ? 'ONLINE' : 'CASH');
+    if (!rentalData.depositPaymentMode || !['CASH', 'ONLINE'].includes(rentalData.depositPaymentMode)) {
+      res.status(400).json({ error: 'Deposit payment mode (CASH or ONLINE) is required to start a rental.' });
+      return;
+    }
+
+    const depositPaymentMode = rentalData.depositPaymentMode as 'CASH' | 'ONLINE';
 
     const [rental] = await prisma.$transaction([
       prisma.rental.create({
@@ -215,7 +220,7 @@ router.post('/:id/swap', requireAuth, async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Invalid rental ID.' });
       return;
     }
-    const { oldVehicleId, newVehicleId, oldVehicleStatus, notesAppend } = req.body;
+    const { oldVehicleId, newVehicleId, oldVehicleStatus, notesAppend, depositAmount, depositPaymentMode } = req.body;
 
     const rental = await prisma.rental.findUnique({ where: { id: rentalId } });
     if (!rental) {
@@ -225,10 +230,25 @@ router.post('/:id/swap', requireAuth, async (req: Request, res: Response) => {
 
     const newNotes = rental.notes ? `${rental.notes}\n\n${notesAppend}` : notesAppend;
 
+    const updateData: any = {
+      vehicleId: newVehicleId,
+      notes: newNotes,
+    };
+
+    if (depositAmount !== undefined && !isNaN(Number(depositAmount))) {
+      updateData.depositAmount = Number(depositAmount);
+    }
+    if (depositPaymentMode && ['CASH', 'ONLINE'].includes(depositPaymentMode)) {
+      updateData.depositPaymentMode = depositPaymentMode;
+      if (!rental.returnDate) {
+        updateData.paymentMode = depositPaymentMode;
+      }
+    }
+
     const [updatedRental] = await prisma.$transaction([
       prisma.rental.update({
         where: { id: rentalId },
-        data: { vehicleId: newVehicleId, notes: newNotes },
+        data: updateData,
       }),
       prisma.vehicle.update({
         where: { id: oldVehicleId },

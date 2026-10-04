@@ -52,7 +52,7 @@ export function Dashboard() {
           {format(new Date(), 'EEEE, MMMM do, yyyy')}
         </div>
       </div>
-
+      
       {/* Stats Cards */}
       <div className="grid gap-6 md:grid-cols-2">
 
