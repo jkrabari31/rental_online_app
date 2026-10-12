@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { Suspense, lazy } from 'react';
 
 // Lazy-load all pages for code-splitting (each becomes a separate JS chunk)
+const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 const BranchManagement = lazy(() => import('./pages/BranchManagement').then(m => ({ default: m.BranchManagement })));
@@ -40,6 +41,10 @@ function AppRoutes() {
   return (
     <Suspense fallback={<PageLoader />}>
     <Routes>
+      {/* Public Marketing Landing Page */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/landing" element={<LandingPage />} />
+
       {/* Public Login Route */}
       <Route path="/login" element={<Login />} />
 
@@ -51,8 +56,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        {/* Smart Root Redirect */}
-        <Route path="/" element={<IndexRedirect />} />
+        {/* Portal Home Shortcut */}
+        <Route path="/app" element={<IndexRedirect />} />
 
         {/* Branch & Shared Routes */}
         <Route path="/dashboard" element={<Dashboard />} />
@@ -120,6 +125,11 @@ function AppRoutes() {
 }
 
 function App() {
+  // If direct URL /login was entered without hash, seamlessly forward to #/login
+  if (typeof window !== 'undefined' && window.location.pathname === '/login' && !window.location.hash) {
+    window.location.replace('/#/login');
+  }
+
   return (
     <AuthProvider>
       <HashRouter>

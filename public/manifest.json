@@ -11,10 +11,10 @@
   "id": "/",
   "icons": [
     {
-      "src": "/icon-144.png",
-      "sizes": "144x144",
+      "src": "/logo.png",
+      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-192.png",

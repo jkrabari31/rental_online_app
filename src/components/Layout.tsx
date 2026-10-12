@@ -83,19 +83,13 @@ export function Layout() {
             <Menu className="w-5 h-5" />
           </button>
           
-          <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 p-0.5 flex items-center justify-center shrink-0">
-              <div className="w-full h-full bg-white dark:bg-slate-900 rounded-[6px] flex items-center justify-center overflow-hidden p-0.5">
-                <img 
-                  src="/logo.png" 
-                  alt="SB Logo" 
-                  className="w-full h-full object-contain" 
-                  onError={(e) => { 
-                    e.currentTarget.style.display = 'none'; 
-                    e.currentTarget.parentElement!.innerHTML = '<span class="text-blue-600 font-extrabold text-[10px]">SB</span>'; 
-                  }} 
-                />
-              </div>
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white p-0.5 shrink-0 shadow-2xs">
+              <img 
+                src="/logo.png" 
+                alt="SB Group Logo" 
+                className="w-full h-full object-contain" 
+              />
             </div>
             <span className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">SB Bike Rental</span>
           </div>
@@ -128,14 +122,12 @@ export function Layout() {
             {/* Drawer Header */}
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 p-0.5 flex items-center justify-center shrink-0">
-                  <div className="w-full h-full bg-white dark:bg-slate-900 rounded-[10px] flex items-center justify-center overflow-hidden p-0.5">
-                    <img src="/logo.png" alt="SB Logo" className="w-full h-full object-contain" />
-                  </div>
+                <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white p-0.5 shrink-0 shadow-2xs">
+                  <img src="/logo.png" alt="SB Group Logo" className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">SB Bike Rental</h2>
-                  <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider">Management Portal</p>
+                  <p className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider">SB Group Portal</p>
                 </div>
               </div>
 
@@ -200,25 +192,19 @@ export function Layout() {
       <aside className="hidden lg:flex w-64 border-r border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl text-slate-700 dark:text-slate-200 flex-col shadow-[2px_0_24px_rgba(0,0,0,0.03)] z-20 select-none">
         {/* Brand Header */}
         <div className="p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center space-x-3.5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 p-0.5 flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20">
-            <div className="w-full h-full bg-white dark:bg-slate-900 rounded-[14px] flex items-center justify-center overflow-hidden p-1">
-              <img 
-                src="/logo.png" 
-                alt="SB Group Logo" 
-                className="w-full h-full object-contain" 
-                onError={(e) => { 
-                  e.currentTarget.style.display = 'none'; 
-                  e.currentTarget.parentElement!.innerHTML = '<span class="text-blue-600 font-extrabold text-sm tracking-tighter">SB</span>'; 
-                }} 
-              />
-            </div>
+          <div className="w-11 h-11 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white p-0.5 shrink-0 shadow-sm">
+            <img 
+              src="/logo.png" 
+              alt="SB Group Logo" 
+              className="w-full h-full object-contain" 
+            />
           </div>
           <div className="overflow-hidden">
             <h1 className="text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-900 dark:from-white dark:via-blue-200 dark:to-indigo-200 bg-clip-text text-transparent truncate">
               SB Bike Rental
             </h1>
-            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold tracking-widest uppercase">
-              Management Portal
+            <p className="text-[10px] text-red-600 dark:text-red-400 font-bold tracking-widest uppercase">
+              SB Group Portal
             </p>
           </div>
         </div>

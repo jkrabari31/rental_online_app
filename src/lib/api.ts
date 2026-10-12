@@ -35,8 +35,15 @@ export async function apiFetch<T = any>(
   }
 
   if (response.status === 401) {
-    // Session expired or not logged in — redirect to login
-    window.location.hash = '#/login';
+    // Only redirect to login if NOT checking initial session (/auth/me)
+    // and NOT currently on a public page (like the landing page)
+    const isAuthCheck = endpoint === '/auth/me';
+    const currentHash = typeof window !== 'undefined' ? window.location.hash : '';
+    const isPublicPage = !currentHash || currentHash === '#/' || currentHash.startsWith('#/landing');
+
+    if (!isAuthCheck && !isPublicPage) {
+      window.location.hash = '#/login';
+    }
     throw new Error('Session expired. Please log in again.');
   }
 

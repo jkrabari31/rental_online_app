@@ -47,8 +47,12 @@ export function Login() {
 
       <Card className="w-full max-w-md border-slate-800 bg-slate-900/90 text-white shadow-2xl backdrop-blur-md relative z-10">
         <CardHeader className="text-center pb-6">
-          <div className="mx-auto bg-gradient-to-tr from-blue-600 to-indigo-600 p-3.5 rounded-2xl w-14 h-14 flex items-center justify-center mb-3 shadow-lg shadow-blue-500/20">
-            <Lock className="w-7 h-7 text-white" />
+          <div className="mx-auto w-16 h-16 rounded-full overflow-hidden border border-slate-700 bg-white p-1 mb-3 shadow-xl shadow-red-500/10 flex items-center justify-center">
+            <img 
+              src="/logo.png" 
+              alt="SB Group Logo" 
+              className="w-full h-full object-contain" 
+            />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
             SB Bike Rental Portal
