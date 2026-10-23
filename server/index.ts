@@ -22,6 +22,7 @@ import branchRoutes from './routes/branches.js';
 import userRoutes from './routes/users.js';
 import backupRoutes from './routes/backup.js';
 import analyticsRoutes from './routes/analytics.js';
+import challanRoutes from './routes/challans.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,6 +86,7 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/challans', challanRoutes);
 
 // Explicit 404 for non-existent /api routes
 app.use('/api', (req, res) => {

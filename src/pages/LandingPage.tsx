@@ -525,6 +525,33 @@ const OFFICES = [
     timing: '7:00 AM – 10:00 PM (All 7 Days)',
     badge: 'Express Commuter Station',
   },
+  {
+    number: 'OFFICE 5',
+    name: 'Marvadi College — Rajkot',
+    address: 'Nr. Marvadi College, Rajkot',
+    phone: '7778880416',
+    isHeadOffice: false,
+    timing: '7:00 AM – 10:00 PM (All 7 Days)',
+    badge: 'Express Commuter Station',
+  },
+  {
+    number: 'OFFICE 6',
+    name: 'Katargam — Surat Branch',
+    address: 'A-107 Suman sarthak,Lig awas, near laxminarayan Society, Dabholi char rasta,Katargam, Surat',
+    phone: '7778880416',
+    isHeadOffice: false,
+    timing: '7:00 AM – 10:00 PM (All 7 Days)',
+    badge: 'Express Commuter Station',
+  },
+  {
+    number: 'OFFICE 7',
+    name: 'Narayanpura - Ahmedabad',
+    address: 'Narayanpura - Ahmedabad',
+    phone: '7778880416',
+    isHeadOffice: false,
+    timing: '7:00 AM – 10:00 PM (All 7 Days)',
+    badge: 'Express Commuter Station',
+  },
 ];
 
 const HERO_SLIDES = [

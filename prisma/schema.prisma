@@ -20,6 +20,7 @@ model Branch {
   rentals     Rental[]
   customers   Customer[]
   maintenance MaintenanceExpense[]
+  challans    Challan[]
 }
 
 model User {
@@ -59,6 +60,7 @@ model Vehicle {
 
   rentals     Rental[]
   maintenance MaintenanceExpense[]
+  challans    Challan[]
 
   @@index([branchId])
   @@index([status])
@@ -77,7 +79,8 @@ model Customer {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  rentals Rental[]
+  rentals  Rental[]
+  challans Challan[]
 
   @@index([branchId])
   @@index([mobileNumber])
@@ -106,6 +109,8 @@ model Rental {
   createdAt          DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  challans Challan[]
+
   @@index([status])
   @@index([returnDate])
   @@index([customerId])
@@ -132,6 +137,36 @@ model MaintenanceExpense {
   @@index([vehicleId])
   @@index([date])                   // Analytics + reports date-range filtering
   @@index([branchId, date])         // Branch-scoped maintenance date queries
+}
+
+model Challan {
+  id              String    @id @default(uuid())
+  challanNumber   String?   // Notice/challan number
+  vehicleId       String
+  vehicle         Vehicle   @relation(fields: [vehicleId], references: [id])
+  rentalId        Int?
+  rental          Rental?   @relation(fields: [rentalId], references: [id])
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  branchId        String
+  branch          Branch    @relation(fields: [branchId], references: [id])
+  challanDate     DateTime  // Date and time of traffic violation
+  amount          Float     // Fine amount
+  reason          String?   // Violation description (e.g. Over-speeding, No Helmet)
+  status          String    @default("PENDING") // PENDING, PAID, WAIVED
+  paidAt          DateTime?
+  paidPaymentMode String?   // CASH, ONLINE
+  paymentNotes    String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([vehicleId])
+  @@index([customerId])
+  @@index([rentalId])
+  @@index([branchId])
+  @@index([status])
+  @@index([challanDate])
 }
 
 model Setting {

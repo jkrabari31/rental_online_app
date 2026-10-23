@@ -53,6 +53,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
         customer: { select: { id: true, name: true, mobileNumber: true, email: true, address: true, idProofType: true, idProofNumber: true } },
         vehicle: { select: { id: true, vehicleName: true, vehicleNumber: true, vehicleType: true, hourlyRate: true, securityDeposit: true, rate1hr: true, rate3hr: true, rate6hr: true, rate12hr: true, rate24hr: true, status: true, branchId: true, branch: { select: { id: true, name: true } } } },
         branch: { select: { id: true, name: true } },
+        challans: { select: { id: true, amount: true, status: true, reason: true, challanDate: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -122,6 +123,25 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
     if (!rentalData.depositPaymentMode || !['CASH', 'ONLINE'].includes(rentalData.depositPaymentMode)) {
       res.status(400).json({ error: 'Deposit payment mode (CASH or ONLINE) is required to start a rental.' });
+      return;
+    }
+
+    // Check if customer has any pending traffic challans/fines across any branch
+    const pendingChallans = await prisma.challan.findMany({
+      where: {
+        status: 'PENDING',
+        OR: [
+          { customerId: customer.id },
+          ...(customerData.mobileNumber ? [{ customer: { mobileNumber: customerData.mobileNumber.trim() } }] : []),
+        ],
+      },
+    });
+
+    if (pendingChallans.length > 0) {
+      const totalFine = pendingChallans.reduce((sum, c) => sum + (c.amount || 0), 0);
+      res.status(400).json({
+        error: `Customer has ${pendingChallans.length} pending traffic challan(s) totaling ₹${totalFine}. Please collect and clear the pending fine before starting a new rental.`
+      });
       return;
     }
 

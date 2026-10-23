@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format, differenceInMinutes } from 'date-fns';
-import { User, Car, Clock, DollarSign, CheckCircle, FileText, AlertTriangle, CalendarIcon, Search, Building2 } from 'lucide-react';
+import { User, Car, Clock, DollarSign, CheckCircle, FileText, AlertTriangle, CalendarIcon, Search, Building2, ShieldAlert, CheckCircle2, Check } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -24,6 +24,18 @@ export function ActiveRentals() {
   const [rentalSearch, setRentalSearch] = useState('');
   const [includeAllBranches, setIncludeAllBranches] = useState(false);
   const { currencySymbol } = useAppStore();
+
+  // Traffic challan red flag state
+  const [pendingChallanData, setPendingChallanData] = useState<{
+    hasPending: boolean;
+    totalPendingAmount: number;
+    count: number;
+    pendingChallans: any[];
+  } | null>(null);
+  const [isRedFlagModalOpen, setIsRedFlagModalOpen] = useState(false);
+  const [isClearFineOpen, setIsClearFineOpen] = useState(false);
+  const [clearPaymentMode, setClearPaymentMode] = useState<'CASH' | 'ONLINE'>('CASH');
+  const [clearNotes, setClearNotes] = useState('');
 
   const [formData, setFormData] = useState({
     customerId: undefined as string | undefined,
@@ -125,6 +137,44 @@ export function ActiveRentals() {
     );
   }, [vehicles, vehicleSearch]);
 
+  const checkCustomerChallans = async (mobile: string) => {
+    if (!mobile || mobile.trim().length < 10) {
+      setPendingChallanData(null);
+      return;
+    }
+    try {
+      const res = await api.get<any>(`/challans/check-customer?mobileNumber=${mobile.trim()}`);
+      if (res && res.hasPending) {
+        setPendingChallanData(res);
+        setIsRedFlagModalOpen(true);
+      } else {
+        setPendingChallanData(null);
+      }
+    } catch (err) {
+      console.error('Failed to check customer challan status:', err);
+    }
+  };
+
+  const handleClearChallanFine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingChallanData || !pendingChallanData.pendingChallans?.length) return;
+
+    try {
+      for (const c of pendingChallanData.pendingChallans) {
+        await api.post(`/challans/${c.id}/pay`, {
+          paidPaymentMode: clearPaymentMode,
+          paymentNotes: clearNotes || `Cleared at counter by branch staff during rental creation for ${formData.customerName}`,
+        });
+      }
+      alert(`Successfully collected and cleared fine of ${currencySymbol}${pendingChallanData.totalPendingAmount}! Customer is now eligible to rent.`);
+      setPendingChallanData(null);
+      setIsRedFlagModalOpen(false);
+      setIsClearFineOpen(false);
+    } catch (err: any) {
+      alert('Failed to clear challan fine: ' + (err.error || err.message));
+    }
+  };
+
   const handleMobileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setFormData(prev => ({ ...prev, mobileNumber: val }));
@@ -157,7 +207,11 @@ export function ActiveRentals() {
       } catch {
         // Customer not found
       }
+
+      // Check traffic challan status for this customer across all branches
+      checkCustomerChallans(val);
     } else {
+      setPendingChallanData(null);
       setFormData(prev => ({ 
         ...prev, 
         customerId: undefined,
@@ -171,6 +225,9 @@ export function ActiveRentals() {
   };
 
   const handleOpenNewRental = () => {
+    setPendingChallanData(null);
+    setIsRedFlagModalOpen(false);
+    setIsClearFineOpen(false);
     setFormData({
       customerId: undefined,
       customerName: '',
@@ -201,6 +258,11 @@ export function ActiveRentals() {
       alert("Please select a Deposit Payment Mode (Cash or Online) before starting the rental.");
       return;
     }
+    if (pendingChallanData && pendingChallanData.hasPending) {
+      alert(`Customer has ${pendingChallanData.count} pending traffic fine(s) totaling ${currencySymbol}${pendingChallanData.totalPendingAmount}. Please collect and clear the fine before starting this rental.`);
+      setIsRedFlagModalOpen(true);
+      return;
+    }
 
     try {
       await api.post('/rentals', {
@@ -225,7 +287,7 @@ export function ActiveRentals() {
       loadRentals();
       loadAvailableVehicles(includeAllBranches);
     } catch (err: any) {
-      alert("Failed to start rental: " + err.message);
+      alert("Failed to start rental: " + (err.error || err.message));
     }
   };
 
@@ -957,14 +1019,53 @@ export function ActiveRentals() {
               </div>
             </div>
 
+            {/* PENDING CHALLAN RED FLAG BANNER */}
+            {pendingChallanData && pendingChallanData.hasPending && (
+              <div className="p-3.5 bg-red-50 dark:bg-red-950/60 border-2 border-red-500 rounded-xl space-y-2 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-bold text-sm">
+                    <AlertTriangle className="w-5 h-5 text-red-600 animate-pulse shrink-0" />
+                    <span>RED FLAG: PENDING TRAFFIC CHALLAN DETECTED!</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-red-600 text-white shadow-sm">
+                    Fine Due: {currencySymbol}{pendingChallanData.totalPendingAmount}
+                  </span>
+                </div>
+                
+                <p className="text-xs text-red-800 dark:text-red-200">
+                  This customer has {pendingChallanData.count} unpaid traffic fine(s) from a previous rental. Customer cannot be issued another vehicle until this fine is collected.
+                </p>
+
+                <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsRedFlagModalOpen(true)}
+                    className="h-8 text-xs border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-100"
+                  >
+                    View Fine Breakdown
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setIsClearFineOpen(true)}
+                    className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm"
+                  >
+                    💰 Collect & Clear Fine ({currencySymbol}{pendingChallanData.totalPendingAmount})
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end space-x-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setIsNewRentalOpen(false)}>Cancel</Button>
               <Button 
                 type="submit" 
-                disabled={!formData.vehicleId || !formData.depositPaymentMode}
-                className="px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!formData.vehicleId || !formData.depositPaymentMode || Boolean(pendingChallanData?.hasPending)}
+                className="px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
               >
-                Start Rental
+                {pendingChallanData?.hasPending ? `Blocked by Fine (${currencySymbol}${pendingChallanData.totalPendingAmount})` : 'Start Rental'}
               </Button>
             </div>
           </form>
@@ -1328,6 +1429,144 @@ export function ActiveRentals() {
                   className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   Confirm Exchange
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* RED FLAG TRAFFIC CHALLAN DETECTED POPUP */}
+      <Dialog open={isRedFlagModalOpen} onOpenChange={setIsRedFlagModalOpen}>
+        <DialogContent className="sm:max-w-lg border-2 border-red-500 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400 text-lg font-bold">
+              <ShieldAlert className="w-6 h-6 text-red-600 animate-bounce" />
+              RED FLAG: Pending Traffic Challan!
+            </DialogTitle>
+          </DialogHeader>
+
+          {pendingChallanData && (
+            <div className="space-y-4 mt-1">
+              <div className="p-3 bg-red-50 dark:bg-red-950/50 rounded-xl border border-red-200 dark:border-red-900 text-xs space-y-1">
+                <div className="flex justify-between font-medium">
+                  <span className="text-muted-foreground">Customer:</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">{formData.customerName || 'Customer'} ({formData.mobileNumber})</span>
+                </div>
+                <div className="flex justify-between text-sm font-extrabold text-red-700 dark:text-red-300 pt-1.5 border-t border-red-200 dark:border-red-900">
+                  <span>Total Unpaid Fines:</span>
+                  <span>{currencySymbol}{pendingChallanData.totalPendingAmount} ({pendingChallanData.count} violation{pendingChallanData.count > 1 ? 's' : ''})</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Traffic Violation History:</p>
+                {pendingChallanData.pendingChallans?.map((c: any) => (
+                  <div key={c.id} className="p-2.5 rounded-lg border bg-slate-50 dark:bg-slate-900 text-xs space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1">
+                        <Car className="w-3.5 h-3.5 text-blue-500" />
+                        {c.vehicle?.vehicleName} ({c.vehicle?.vehicleNumber})
+                      </span>
+                      <span className="font-bold text-red-600 dark:text-red-400">{currencySymbol}{c.amount}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span>Reason: {c.reason}</span>
+                      <span>{format(new Date(c.challanDate), 'dd MMM yyyy, h:mm a')}</span>
+                    </div>
+                    {c.challanNumber && (
+                      <div className="text-[10px] text-slate-500 font-mono">Notice No: {c.challanNumber}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200">
+                ⚠️ <strong>Rental Blocked:</strong> As per company policy, vehicles cannot be rented to this customer until this traffic penalty is paid and cleared.
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsRedFlagModalOpen(false)}
+                >
+                  Close & Review
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setIsRedFlagModalOpen(false);
+                    setIsClearFineOpen(true);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  💰 Collect & Clear Fine Now
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* QUICK COLLECT & CLEAR FINE DIALOG FOR BRANCH/ADMIN */}
+      <Dialog open={isClearFineOpen} onOpenChange={setIsClearFineOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-base font-bold">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              Collect Fine & Clear Red Flag
+            </DialogTitle>
+          </DialogHeader>
+
+          {pendingChallanData && (
+            <form onSubmit={handleClearChallanFine} className="space-y-4 mt-2">
+              <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border text-xs space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Customer:</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{formData.customerName || 'Customer'} ({formData.mobileNumber})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Pending Fines:</span>
+                  <span>{pendingChallanData.count} violation(s)</span>
+                </div>
+                <div className="flex justify-between text-base font-bold text-red-600 dark:text-red-400 pt-1.5 border-t">
+                  <span>Total Amount to Collect:</span>
+                  <span>{currencySymbol}{pendingChallanData.totalPendingAmount}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-slate-600 dark:text-slate-400 font-medium">Payment Mode Received *</Label>
+                <Select
+                  value={clearPaymentMode}
+                  onValueChange={(v: string | null) => setClearPaymentMode((v as any) || 'CASH')}
+                >
+                  <SelectTrigger className="font-semibold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CASH">💵 Cash at Counter</SelectItem>
+                    <SelectItem value="ONLINE">📱 Online / UPI / QR</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-slate-600 dark:text-slate-400 font-medium">Remarks / Receipt Note (Optional)</Label>
+                <Input
+                  placeholder="e.g. Paid at counter before starting new rental"
+                  value={clearNotes}
+                  onChange={(e) => setClearNotes(e.target.value)}
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t">
+                <Button type="button" variant="outline" onClick={() => setIsClearFineOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+                  Confirm Payment & Clear
                 </Button>
               </div>
             </form>
