@@ -18,7 +18,8 @@ import {
   Receipt,
   Tag,
   TrendingDown,
-  TrendingUp
+  TrendingUp,
+  Car
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -32,6 +33,7 @@ export function Reports() {
   const [settings, setSettings] = useState<any>(null);
   const [branches, setBranches] = useState<any[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
+  const [exportVehicleId, setExportVehicleId] = useState<string>('ALL');
 
   const [rentals, setRentals] = useState<any[]>([]);
   const [activeRentals, setActiveRentals] = useState<any[]>([]);
@@ -220,12 +222,15 @@ export function Reports() {
       if (selectedBranchId !== 'ALL') {
         query += `&branchId=${selectedBranchId}`;
       }
+      if (exportVehicleId !== 'ALL') {
+        query += `&vehicleId=${exportVehicleId}`;
+      }
 
       const fetchedRentals = await api.get<any[]>(query);
       const exportRentals = fetchedRentals || [];
 
       if (exportRentals.length === 0) {
-        alert('No completed rentals found for this date range and branch.');
+        alert('No completed rentals found for the selected filters.');
         return;
       }
 
@@ -290,9 +295,21 @@ export function Reports() {
       worksheet['!cols'] = colWidths;
 
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Rental Report');
+      const sheetName = exportVehicleId !== 'ALL'
+        ? (vehicles.find(v => v.id === exportVehicleId)?.vehicleName?.slice(0, 30) || 'Rental Report')
+        : 'Rental Report';
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
 
-      const fileName = `Rental_Report_${targetStart}_to_${targetEnd}`;
+      let vehicleSuffix = '';
+      if (exportVehicleId !== 'ALL') {
+        const matchedVehicle = vehicles.find(v => v.id === exportVehicleId);
+        if (matchedVehicle) {
+          const safeName = `${matchedVehicle.vehicleName}_${matchedVehicle.vehicleNumber}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+          vehicleSuffix = `_${safeName}`;
+        }
+      }
+
+      const fileName = `Rental_Report${vehicleSuffix}_${targetStart}_to_${targetEnd}`;
       if (formatType === 'excel') {
         XLSX.writeFile(workbook, `${fileName}.xlsx`);
       } else {
@@ -330,7 +347,10 @@ export function Reports() {
 
         {/* Global Branch Filter for Reports */}
         <div className="w-64">
-          <Select value={selectedBranchId} onValueChange={(v: string | null) => setSelectedBranchId(v || 'ALL')}>
+          <Select value={selectedBranchId} onValueChange={(v: string | null) => {
+            setSelectedBranchId(v || 'ALL');
+            setExportVehicleId('ALL');
+          }}>
             <SelectTrigger className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm">
               <Building2 className="w-4 h-4 mr-2 text-blue-500 shrink-0" />
               <SelectValue placeholder="Filter by Branch">
@@ -371,6 +391,46 @@ export function Reports() {
                 <DatePicker value={endDate} onChange={setEndDate} placeholder="End date" />
               </div>
             </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Car className="w-4 h-4 text-blue-500" />
+                  Vehicle Filter (વાહન ફિલ્ટર)
+                </Label>
+                {exportVehicleId !== 'ALL' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setExportVehicleId('ALL')}
+                  >
+                    Reset to All
+                  </Button>
+                )}
+              </div>
+              <Select value={exportVehicleId} onValueChange={(v: string | null) => setExportVehicleId(v || 'ALL')}>
+                <SelectTrigger className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+                  <SelectValue placeholder="All Vehicles (બધા વાહનો)">
+                    {exportVehicleId === 'ALL'
+                      ? 'All Vehicles (બધા વાહનો)'
+                      : (() => {
+                          const v = vehicles.find(veh => veh.id === exportVehicleId);
+                          return v ? `${v.vehicleName} (${v.vehicleNumber})` : 'All Vehicles (બધા વાહનો)';
+                        })()}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Vehicles (બધા વાહનો)</SelectItem>
+                  {vehicles.map(v => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.vehicleName} ({v.vehicleNumber})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex space-x-3 pt-2">
               <Button
                 onClick={() => handleExport('excel')}
@@ -396,8 +456,18 @@ export function Reports() {
         {/* Quick Report Shortcuts */}
         <Card>
           <CardHeader>
-            <CardTitle>Quick Reports</CardTitle>
-            <CardDescription>One-click export for common date ranges</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Quick Reports</CardTitle>
+                <CardDescription>One-click export for common date ranges</CardDescription>
+              </div>
+              {exportVehicleId !== 'ALL' && (
+                <span className="text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-900 flex items-center gap-1">
+                  <Car className="w-3.5 h-3.5" />
+                  Vehicle Filtered
+                </span>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button variant="outline" className="w-full justify-start" onClick={() => {
